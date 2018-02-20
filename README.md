@@ -24,6 +24,9 @@ a packet that can be sent over the network to fill in for losses.
 Pass encoded data to the ccat_decode_recovery() function.  When recovery
 occurs it will call the application's OnRecoveredData() callback.
 
+There is a simple unit test here, which also demonstrates the C++ SDK wrapper:
+https://github.com/catid/CauchyCaterpillar/blob/master/tests/Tester.cpp
+
 Thread-safety:
 
 Applications using the library can use different locks to protect the
@@ -56,7 +59,7 @@ https://github.com/catid/wirehair/
 
 #### Credits
 
-I posted about this type of erasure code years ago on my blog, but never finished the project.  Recently Nicolas SAID sent me a recent paper from Martin Reisslein from ASU that explores a similar idea: http://mre.faculty.asu.edu/CRLNC.pdf  Based on the success of that work I decided to put my own spin on it and release here.  Hope others find it useful!
+I posted about this type of erasure code years ago on my blog, but never finished the project.  Recently Nicolas SAID sent me a paper from Dr. Martin Reisslein from ASU that explores a similar idea ( http://mre.faculty.asu.edu/CRLNC.pdf ).  Based on the success of that work I decided to put my own spin on it and release here.  Hope others find it useful!
 
 Software by Christopher A. Taylor <mrcatid@gmail.com>
 
