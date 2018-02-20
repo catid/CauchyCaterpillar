@@ -197,7 +197,7 @@ typedef struct CCatOriginal_t
     /// Packet sequence number.
     /// This must be an incrementing sequence number, starting from 0, which
     /// increments by 1 each time a packet is sent.
-    /// Suggestion: Truncate this and reconstructing it using Counter.h
+    /// Suggestion: Truncate this and reconstruct it using Counter.h
     uint64_t SequenceNumber;
 } CCatOriginal;
 
@@ -206,7 +206,7 @@ typedef struct CCatRecovery_t
 {
     /// Sequence start parameter.
     /// Provided by ccat_encode_recovery().
-    /// Suggestion: Truncate this and reconstructing it using Counter.h
+    /// Suggestion: Truncate this and reconstruct it using Counter.h
     uint64_t SequenceStart;
 
     /// Pointer to buffer containing recovery data
