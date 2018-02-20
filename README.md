@@ -11,7 +11,7 @@ Example applications:
 * Video conferencing/live broadcast
 * Live telemetry/statistics feeds
 
-Usage:
+#### Usage:
 
 (1) Call ccat_create() to create a CCatCodec object.
 
@@ -27,23 +27,23 @@ occurs it will call the application's OnRecoveredData() callback.
 There is a simple unit test here, which also demonstrates the C++ SDK wrapper:
 https://github.com/catid/CauchyCaterpillar/blob/master/tests/Tester.cpp
 
-Thread-safety:
+#### Thread-safety:
 
 Applications using the library can use different locks to protect the
 ccat_encode_*() functions and the ccat_decode_*() functions, because no data
 is shared between those.  Otherwise the library is not thread-safe and
 does require locking on the application-side.
 
-Packet de-duplication:
+#### Packet de-duplication:
 
 CCat will not deliver two packets with the same sequence number.
 
-Packet re-ordering:
+#### Packet re-ordering:
 
 CCat can deliver data out of order, so its output should be fed into
 a dejitter buffer.
 
-Alternatives:
+#### Alternatives:
 
 Compared to Random Linear Codes, the decoding is 2x more reliable.
 Encoding/decoding is faster thanks to the Cauchy matrix structure.
@@ -56,6 +56,21 @@ https://github.com/catid/siamese/
 For fountain codes, using Wirehair FEC is recommended:
 https://github.com/catid/wirehair/
 
+#### Streaming versus Generational Block Codec
+
+There is an older generational block codec that I wrote a while back that you can find here:
+https://github.com/catid/shorthair
+
+The advantages of streaming erasure codes over generational block codes are covered here:
+
+[Block or Convolutional AL-FEC Codes? A Performance
+Comparison for Robust Low-Latency Communications](https://hal.inria.fr/hal-01395937v2/document) [1].
+
+~~~
+[1] Vincent Roca, Belkacem Teibi, Christophe Burdinat, Tuan Tran-Thai, C´edric Thienot. Block
+or Convolutional AL-FEC Codes? A Performance Comparison for Robust Low-Latency Communications.
+2017. <hal-01395937v2>
+~~~
 
 #### Credits
 
