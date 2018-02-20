@@ -72,6 +72,9 @@ or Convolutional AL-FEC Codes? A Performance Comparison for Robust Low-Latency C
 2017. <hal-01395937v2>
 ~~~
 
+CCat corresponds to the "brief glimpse at the future" slide here:
+https://github.com/catid/CauchyCaterpillar/blob/master/docs/ErasureCodesInSoftware.pdf
+
 #### Credits
 
 I posted about this type of erasure code years ago on my blog, but never finished the project.  Recently Nicolas SAID sent me a paper from Dr. Martin Reisslein from ASU that explores a similar idea ( http://mre.faculty.asu.edu/CRLNC.pdf ).  Based on the success of that work I decided to put my own spin on it and release here.  Hope others find it useful!
