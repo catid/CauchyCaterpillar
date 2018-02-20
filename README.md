@@ -30,7 +30,7 @@ https://github.com/catid/CauchyCaterpillar/blob/master/tests/Tester.cpp
 #### Thread-safety:
 
 Applications using the library can use different locks to protect the
-ccat_encode_*() functions and the ccat_decode_*() functions, because no data
+ccat_encode_xxx() functions and the ccat_decode_xxx() functions, because no data
 is shared between those.  Otherwise the library is not thread-safe and
 does require locking on the application-side.
 
