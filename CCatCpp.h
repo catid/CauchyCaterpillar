@@ -133,5 +133,5 @@ protected:
     }
 
     bool Error = false;
-    CCatCodec Codec;
+    CCatCodec Codec = nullptr;
 };
