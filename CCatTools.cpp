@@ -51,7 +51,10 @@ namespace ccat {
 //------------------------------------------------------------------------------
 // AlignedLightVector
 
-bool AlignedLightVector::Resize(pktalloc::Allocator* allocPtr, unsigned elements, pktalloc::Realloc behavior)
+bool AlignedLightVector::Resize(
+    pktalloc::Allocator* allocPtr,
+    unsigned elements,
+    pktalloc::Realloc behavior)
 {
     CCAT_DEBUG_ASSERT(Size <= Allocated);
 

@@ -146,7 +146,7 @@ typedef enum CCatResult_t
     CCat_OOM                = 3,
 
     /// Needs to be fed more data before it can recover more
-    CCat_NeedMoreData       = 4,
+    CCat_NeedsMoreData      = 4,
 
     CCatResult_Count, /* for asserts */
     CCatResult_Padding = 0x7fffffff /* int32_t padding */
@@ -267,7 +267,7 @@ CCAT_EXPORT CCatResult ccat_encode_original(
     missing packets.
 
     Returns CCat_Success on success.
-    Returns CCat_NeedMoreData if recovery packets cannot be produced.
+    Returns CCat_NeedsMoreData if recovery packets cannot be produced.
     Returns other values on error.
 */
 CCAT_EXPORT CCatResult ccat_encode_recovery(

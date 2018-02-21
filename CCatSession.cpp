@@ -177,7 +177,7 @@ CCatResult CCatEncoder::EncodeRecovery(CCatRecovery& recoveryOut)
         recoveryOut.Bytes = 0;
         recoveryOut.RecoveryRow = 0;
 
-        return CCat_NeedMoreData;
+        return CCat_NeedsMoreData;
     }
 
     // Step (2): Write recovery packet
@@ -419,6 +419,12 @@ CCatDecoder::Expand CCatDecoder::ExpandWindow(Counter64 sequenceStart, unsigned 
         // Reset packet ring buffer rotation back to front
         PacketsRotation = 0;
 
+        for (unsigned i = 0; i < kDecoderWindowSize; ++i)
+        {
+            AllocPtr->Free(Packets[i].Data);
+            Packets[i].Data = nullptr;
+        }
+
         // Clear recovery list whenever window is cleared
         ClearRecoveryList();
         return Expand::Evacuated;
@@ -441,6 +447,16 @@ CCatDecoder::Expand CCatDecoder::ExpandWindow(Counter64 sequenceStart, unsigned 
 
     const unsigned lostBits = roundWordShift * 64;
     CCAT_DEBUG_ASSERT(lostBits < kDecoderWindowSize);
+
+    unsigned element = PacketsRotation;
+    for (unsigned i = 0; i < lostBits; ++i)
+    {
+        AllocPtr->Free(Packets[element].Data);
+        Packets[element].Data = nullptr;
+        ++element;
+        if (element >= kDecoderWindowSize)
+            element -= kDecoderWindowSize;
+    }
 
     SequenceBase += lostBits;
     CCAT_DEBUG_ASSERT(SequenceEnd - SequenceBase <= kDecoderWindowSize);
@@ -931,7 +947,7 @@ CCatResult CCatDecoder::FindSolutions()
 {
     RecoveryPacket* next = RecoveryLast;
     if (!next) {
-        return CCat_NeedMoreData;
+        return CCat_NeedsMoreData;
     }
 
     Counter64 nextSequenceStart = next->SequenceStart;
@@ -1030,7 +1046,7 @@ CCatResult CCatDecoder::FindSolutions()
         prev = prev->Prev;
     }
 
-    return CCat_NeedMoreData;
+    return CCat_NeedsMoreData;
 }
 
 CCatResult CCatDecoder::Solve(RecoveryPacket* spanStart, RecoveryPacket* spanEnd)
@@ -1070,7 +1086,7 @@ CCatResult CCatDecoder::Solve(RecoveryPacket* spanStart, RecoveryPacket* spanEnd
 
 OnFail:
     // Release temporary space for this span and get resume point for search
-    ReleaseSpan(spanStart, spanEnd);
+    ReleaseSpan(spanStart, spanEnd, result);
 
     // If any failures occurred:
     if (result != CCat_Success) {
@@ -1180,12 +1196,16 @@ CCatResult CCatDecoder::ArraysFromSpans(RecoveryPacket* spanStart, RecoveryPacke
         return CCat_Error;
     }
 
-    // For each column:
-    for (unsigned i = 0; i < columnCount; ++i)
+    // For each row:
+    for (unsigned i = 0; i < rowCount; ++i)
     {
         // Initialize pivot rows assuming no row swaps
         PivotRowIndex[i] = (uint8_t)i;
+    }
 
+    // For each column:
+    for (unsigned i = 0; i < columnCount; ++i)
+    {
         // Clear diagonal data in case we fail
         DiagonalData[i] = nullptr;
     }
@@ -1349,7 +1369,7 @@ CCatResult CCatDecoder::ResumeGaussianElimination(
     const unsigned columnCount = ColumnCount;
 
     // Continue elimination for remaining pivots:
-    for (; row < rowCount; ++row)
+    for (; row < columnCount; ++row)
     {
         pivot_data += columnCount;
 
@@ -1471,7 +1491,7 @@ CCatResult CCatDecoder::PivotedGaussianElimination(unsigned pivotColumn)
             }
 
             // Swap this pivot row into place
-            if (i > pivotColumn) {
+            if (i != pivotColumn) {
                 const uint8_t temp = PivotRowIndex[pivotColumn];
                 PivotRowIndex[pivotColumn] = pivotRowIndex;
                 PivotRowIndex[i] = temp;
@@ -1500,8 +1520,10 @@ CCatResult CCatDecoder::PivotedGaussianElimination(unsigned pivotColumn)
 
         // If no rows found that can help:
         if (!pivot_data) {
-            // Pivoting failed too
-            return CCat_NeedMoreData;
+            // Record failure point
+            CCAT_DEBUG_ASSERT(pivotColumn < ColumnCount);
+            FailureSequence = ColumnInfo[pivotColumn].Sequence;
+            return CCat_NeedsMoreData;
         }
 
         // If we are done:
@@ -1806,14 +1828,44 @@ CCatResult CCatDecoder::ReportSolution()
     return CCat_Success;
 }
 
-void CCatDecoder::ReleaseSpan(RecoveryPacket* spanStart, RecoveryPacket* spanEnd)
+void CCatDecoder::ReleaseSpan(
+    RecoveryPacket* spanStart,
+    RecoveryPacket* spanEnd,
+    CCatResult solveResult)
 {
+    if (!spanStart) {
+        return;
+    }
+
     const unsigned columnCount = ColumnCount;
     const unsigned solutionBytes = SolutionBytes;
 
     // For each column:
     for (unsigned i = 0; i < columnCount; ++i) {
         AllocPtr->Free(DiagonalData[i]);
+        DiagonalData[i] = nullptr;
+    }
+
+    // The minimum sequence number that we can expect to fix in the future
+    const Counter64 futureMinSequence = RecoveryLast->SequenceStart;
+
+    Counter64 poisonSequence = futureMinSequence;
+
+    // If the solver will need more data to get past this point:
+    if (solveResult == CCat_NeedsMoreData) {
+        CCAT_DEBUG_ASSERT(FailureSequence >= spanStart->SequenceStart);
+        CCAT_DEBUG_ASSERT(FailureSequence < spanEnd->SequenceEnd);
+
+        // If we are unlikely to receive more recovery spans covering it:
+        if (futureMinSequence > FailureSequence) {
+            // Only clear recovery packets that reference the failure point
+            poisonSequence = FailureSequence + 1;
+        }
+        else {
+            // With further recovery packets we might still solve this,
+            // so keep what we have and wait for more to arrive.
+            return;
+        }
     }
 
     // Keep track of span edges
@@ -1825,6 +1877,13 @@ void CCatDecoder::ReleaseSpan(RecoveryPacket* spanStart, RecoveryPacket* spanEnd
     CCAT_DEBUG_ASSERT(recovery);
     while (recovery)
     {
+        // If this recovery packet does not include the poison sequence:
+        if (recovery->SequenceStart > poisonSequence) {
+            // Move end of span
+            spanNext = recovery;
+            break;
+        }
+
         RecoveryPacket* next = recovery->Next;
 
         // Free any unused recovery data

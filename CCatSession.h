@@ -254,6 +254,9 @@ private:
     //--------------------------------------------------------------------------
     // Statistics:
 
+    /// Sequence number we failed to recover
+    Counter64 FailureSequence = 0;
+
     /// Number of 2x2 or larger solves that succeeded
     uint64_t LargeRecoverySuccesses = 0;
 
@@ -334,7 +337,7 @@ private:
 
     /// Plan out steps that will recover the original data.
     /// Return CCat_Success if solution is possible (99.9% of the time).
-    /// Return CCat_NeedMoreData if given rows are insufficient to find a solution
+    /// Return CCat_NeedsMoreData if given rows are insufficient to find a solution
     CCatResult PlanSolution();
 
     /// Gaussian elimination to put matrix in upper triangular form
@@ -356,7 +359,10 @@ private:
     CCatResult ReportSolution();
 
     /// Release exhausted recovery span
-    void ReleaseSpan(RecoveryPacket* spanStart, RecoveryPacket* spanEnd);
+    void ReleaseSpan(
+        RecoveryPacket* spanStart,
+        RecoveryPacket* spanEnd,
+        CCatResult solveResult);
 };
 
 

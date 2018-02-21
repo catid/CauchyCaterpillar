@@ -109,7 +109,7 @@ CCAT_EXPORT CCatResult ccat_decode_recovery(
     if (!session)
         return CCat_InvalidInput;
     CCatResult result = session->DecodeRecovery(*recovery);
-    if (result == CCat_NeedMoreData) {
+    if (result == CCat_NeedsMoreData) {
         // If we need more data, just return a success code to simplify the API.
         return CCat_Success;
     }
