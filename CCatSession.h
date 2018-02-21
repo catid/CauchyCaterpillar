@@ -31,6 +31,9 @@
 
 #include "CCatTools.h"
 
+// Define this to use less memory but a bit more CPU
+//#define CCAT_FREE_UNUSED_PACKETS
+
 namespace ccat {
 
 
@@ -106,7 +109,7 @@ struct RecoveryPacket
     RecoveryPacket* Prev = nullptr;
 
     /// Recovery packet data.  Allocated with PacketAllocator
-    uint8_t* Data;
+    uint8_t* Data = nullptr;
 
     /// Bytes in packet data
     unsigned Bytes = 0;

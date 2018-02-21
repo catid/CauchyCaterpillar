@@ -419,11 +419,13 @@ CCatDecoder::Expand CCatDecoder::ExpandWindow(Counter64 sequenceStart, unsigned 
         // Reset packet ring buffer rotation back to front
         PacketsRotation = 0;
 
+#ifdef CCAT_FREE_UNUSED_PACKETS
         for (unsigned i = 0; i < kDecoderWindowSize; ++i)
         {
             AllocPtr->Free(Packets[i].Data);
             Packets[i].Data = nullptr;
         }
+#endif // CCAT_FREE_UNUSED_PACKETS
 
         // Clear recovery list whenever window is cleared
         ClearRecoveryList();
@@ -448,6 +450,7 @@ CCatDecoder::Expand CCatDecoder::ExpandWindow(Counter64 sequenceStart, unsigned 
     const unsigned lostBits = roundWordShift * 64;
     CCAT_DEBUG_ASSERT(lostBits < kDecoderWindowSize);
 
+#ifdef CCAT_FREE_UNUSED_PACKETS
     unsigned element = PacketsRotation;
     for (unsigned i = 0; i < lostBits; ++i)
     {
@@ -457,6 +460,7 @@ CCatDecoder::Expand CCatDecoder::ExpandWindow(Counter64 sequenceStart, unsigned 
         if (element >= kDecoderWindowSize)
             element -= kDecoderWindowSize;
     }
+#endif // CCAT_FREE_UNUSED_PACKETS
 
     SequenceBase += lostBits;
     CCAT_DEBUG_ASSERT(SequenceEnd - SequenceBase <= kDecoderWindowSize);
@@ -1605,14 +1609,15 @@ CCatResult CCatDecoder::EliminateOriginals()
 
         // Reallocate to larger size, keeping any data currently there
         data = AllocPtr->Reallocate(data, solutionBytes, pktalloc::Realloc::CopyExisting);
+
+        // Clear data reference from recovery packet
+        recovery->Data = nullptr;
+
         if (!data)
         {
             CCAT_DEBUG_BREAK(); // Out of memory
             return CCat_OOM;
         }
-
-        // Clear data reference from recovery packet
-        recovery->Data = nullptr;
 
         // Pad with zeros out to a consistent SolutionBytes size
         const unsigned bytes = recovery->Bytes;
@@ -1856,7 +1861,7 @@ void CCatDecoder::ReleaseSpan(
         // If we are unlikely to receive more recovery spans covering it:
         if (futureMinSequence > FailureSequence) {
             // Only clear recovery packets that reference the failure point
-            poisonSequence = FailureSequence + 1;
+            poisonSequence = FailureSequence;
         }
         else {
             // With further recovery packets we might still solve this,
@@ -1876,7 +1881,7 @@ void CCatDecoder::ReleaseSpan(
     {
         // If this recovery packet does not include the poison sequence:
         if (recovery->SequenceStart > poisonSequence) {
-            // Move end of span
+            // Stop removing packets here
             spanNext = recovery;
             break;
         }
@@ -1896,56 +1901,94 @@ void CCatDecoder::ReleaseSpan(
         CCAT_DEBUG_ASSERT(recovery);
     }
 
-    // Sequence number of left/right-most losses that were recovered
+    // Sequence number of left-most/right-most losses that were recovered
     const Counter64 leftLossSequence = ColumnInfo[0].Sequence;
-    const Counter64 rightLossSequence = ColumnInfo[ColumnCount - 1].Sequence;
+    const Counter64 rightLossSequence = ColumnInfo[columnCount - 1].Sequence;
+    RecoveryPacket* prev;
+    RecoveryPacket* next;
 
     // Scan left to evacuate unneeded recovery data:
-    while (spanPrev)
+    next = nullptr;
+    recovery = spanPrev;
+    while (recovery)
     {
+        prev = recovery->Prev;
+
         // If recovered span is disjoint with prev packet span:
-        if (leftLossSequence >= spanPrev->SequenceEnd) {
+        if (leftLossSequence >= recovery->SequenceEnd) {
             break; // Stop here
         }
 
         // Find remaining lost count in packet overlapping span
-        const unsigned lost = GetLostInRange(spanPrev->SequenceStart, leftLossSequence);
+        const unsigned lost = GetLostInRange(recovery->SequenceStart, leftLossSequence);
 
-        RecoveryPacket* prev = spanPrev->Prev;
-
-        // If this recovery row is useless now:
-        if (lost == 0)
+        // If this recovery packet is still useful:
+        if (lost != 0)
         {
-            // Release this packet
-            AllocPtr->Free(spanPrev->Data);
-            AllocPtr->Destruct(spanPrev);
+            next = recovery;
+            recovery = prev;
+            continue;
         }
 
-        spanPrev = prev;
+        // Unlink this packet
+        if (!next) {
+            spanPrev = prev;
+        }
+        else {
+            if (prev)
+                prev->Next = next;
+            else
+                RecoveryFirst = next;
+            next->Prev = prev;
+        }
+
+        // Release this packet
+        AllocPtr->Free(recovery->Data);
+        AllocPtr->Destruct(recovery);
+
+        recovery = prev;
     }
 
     // Scan right to evacuate unneeded recovery data:
-    while (spanNext)
+    prev = nullptr;
+    recovery = spanNext;
+    while (recovery)
     {
+        next = recovery->Next;
+
         // If recovered span is disjoint with next packet span:
-        if (rightLossSequence < spanNext->SequenceStart) {
+        if (rightLossSequence < recovery->SequenceStart) {
             break; // Stop here
         }
 
         // Find remaining lost count in packet overlapping span
-        const unsigned lost = GetLostInRange(rightLossSequence, spanNext->SequenceEnd);
+        const unsigned lost = GetLostInRange(rightLossSequence, recovery->SequenceEnd);
 
-        RecoveryPacket* next = spanNext->Next;
-
-        // If this recovery row is useless now:
-        if (lost == 0)
+        // If this recovery packet is still useful:
+        if (lost != 0)
         {
-            // Release this packet
-            AllocPtr->Free(spanNext->Data);
-            AllocPtr->Destruct(spanNext);
+            prev = recovery;
+            recovery = next;
+            continue;
         }
 
-        spanNext = next;
+        // Unlink this packet
+        if (!prev) {
+            spanNext = next;
+        }
+        else {
+            if (next)
+                next->Prev = prev;
+            else
+                RecoveryLast = prev;
+            prev->Next = next;
+        }
+
+        // Release this packet
+        AllocPtr->Free(recovery->Data);
+        AllocPtr->Destruct(recovery);
+
+        recovery = next;
     }
 
     // Fix linked list

@@ -58,9 +58,7 @@
     #include <intrin.h> // __popcnt64
 #endif
 
-
 namespace pktalloc {
-
 
 
 //------------------------------------------------------------------------------
@@ -478,11 +476,11 @@ protected:
     typedef CustomBitSet<kWindowMaxUnits> UsedMaskT;
 
     /// When we can only fit a few in a window, switch to fallback
-#ifdef PKTALLOC_DISABLE_ALLOCATOR
+#ifdef PKTALLOC_DISABLE
     static const unsigned kFallbackThresholdUnits = 0;
-#else
+#else // PKTALLOC_DISABLE
     static const unsigned kFallbackThresholdUnits = kWindowMaxUnits / 4;
-#endif
+#endif // PKTALLOC_DISABLE
 
     /// This is at the front of each allocation window
     struct WindowHeader

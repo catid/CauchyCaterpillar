@@ -499,9 +499,9 @@ uint8_t* Allocator::Reallocate(uint8_t* ptr, unsigned bytes, Realloc behavior)
     }
 
     const unsigned existingUnits = regionHeader->UsedUnits;
-#ifndef PKTALLOC_DISABLE_ALLOCATOR
+#ifndef PKTALLOC_DISABLE
     PKTALLOC_DEBUG_ASSERT(!regionHeader->Header || existingUnits <= kFallbackThresholdUnits);
-#endif // PKTALLOC_DISABLE_ALLOCATOR
+#endif // PKTALLOC_DISABLE
 
     // If the existing allocation is big enough:
     const unsigned requestedUnits = (bytes + kUnitSize - 1) / kUnitSize + 1;

@@ -1,7 +1,56 @@
+/** \file
+    \brief Cauchy Caterpillar Tester
+    \copyright Copyright (c) 2017 Christopher A. Taylor.  All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    * Redistributions of source code must retain the above copyright notice,
+      this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright notice,
+      this list of conditions and the following disclaimer in the documentation
+      and/or other materials provided with the distribution.
+    * Neither the name of CCat nor the names of its contributors may be
+      used to endorse or promote products derived from this software without
+      specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+    ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+    LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+    CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+    POSSIBILITY OF SUCH DAMAGE.
+*/
+
 #include "../CCatCpp.h"
 #include "Logger.h"
 #include "SiameseTools.h"
 #include "StrikeRegister.h"
+
+
+// Packetloss rate
+static const float plr = 0.1f;
+
+// FEC rate
+static const float fec = 0.14f;
+
+// Number of parallel runs to simulate
+static const unsigned kParallelRuns = 5;
+
+// Number of packets to send per burst
+static const unsigned kSpeedMultiplier = 6;
+
+// Window length in time
+static const unsigned kWindowMsec = 100;
+
+// Maximum size of test packets
+static const size_t kTestPacketMaxBytes = 1000;
+
 
 // Compiler-specific debug break
 #if defined(_DEBUG) || defined(DEBUG)
@@ -18,10 +67,6 @@
 #endif
 
 static logger::Channel Logger("Tester", logger::Level::Trace);
-
-static const size_t kCheckLimit = 1000;
-
-static const float plr = 0.2f;
 
 static void SetPacket(uint64_t sequence, void* data, size_t bytes)
 {
@@ -53,13 +98,11 @@ static void SetPacket(uint64_t sequence, void* data, size_t bytes)
 
 static bool CheckPacket(uint64_t sequence, const void* data, size_t bytes)
 {
-    uint8_t expected[kCheckLimit];
-    SIAMESE_DEBUG_ASSERT(bytes <= kCheckLimit);
+    uint8_t expected[kTestPacketMaxBytes];
+    SIAMESE_DEBUG_ASSERT(bytes <= kTestPacketMaxBytes);
     SetPacket(sequence, expected, bytes);
     return 0 == memcmp(expected, data, bytes);
 }
-
-static const unsigned kWindowMsec = 100;
 
 class Sender : public CauchyCaterpillar
 {
@@ -101,21 +144,13 @@ public:
     }
 };
 
-// Number of parallel runs to simulate
-static const unsigned kParallelRuns = 100;
-
-// Number of packets to send per burst
-static const unsigned kSpeedMultiplier = 10;
-
-static const uint32_t kPlrThresh = (uint32_t)(0xffffffff * plr);
-
 struct RunState
 {
     Sender sender;
     Receiver receiver;
     siamese::PCGRandom prng;
     uint64_t sequence = 0;
-    unsigned fecRate = 0;
+    uint64_t fecSent = 0;
     unsigned packetsSent = 0;
 
     bool Initialize(unsigned runIndex, uint64_t seed)
@@ -140,8 +175,8 @@ struct RunState
     bool Run()
     {
         // Generate a packet
-        uint8_t data[kCheckLimit];
-        size_t bytes = (prng.Next() % kCheckLimit) + 1;
+        uint8_t data[kTestPacketMaxBytes];
+        size_t bytes = (prng.Next() % kTestPacketMaxBytes) + 1;
         SetPacket(sequence, data, bytes);
 
         CCatOriginal original;
@@ -151,7 +186,10 @@ struct RunState
         sender.SendOriginal(original);
         ++packetsSent;
 
-        if (prng.Next() > kPlrThresh)
+        // Precalculate PLR 32-bit PRNG threshold
+        static const uint32_t kPlrPRNG32Thresh = (uint32_t)(0xffffffff * plr);
+
+        if (prng.Next() > kPlrPRNG32Thresh)
         {
             if (receiver.StrikeRegister.IsDuplicate(original.SequenceNumber))
             {
@@ -165,16 +203,14 @@ struct RunState
             receiver.OnOriginal(original);
         }
 
-        // Send FEC every 3 original packets
-        // 25% of traffic is FEC
-        if (++fecRate >= 3)
+        // Maintain a fixed FEC rate >= fec / (original + fec)
+        if (fecSent < (uint64_t)(fec * (sequence + fecSent)))
         {
-            fecRate = 0;
-
             CCatRecovery recovery;
             sender.SendRecovery(recovery);
+            ++fecSent;
 
-            if (prng.Next() > kPlrThresh)
+            if (prng.Next() > kPlrPRNG32Thresh)
             {
                 receiver.OnRecovery(recovery);
             }
