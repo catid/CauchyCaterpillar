@@ -1466,7 +1466,7 @@ CCatResult CCatDecoder::PivotedGaussianElimination(unsigned pivotColumn)
     for (;;)
     {
         uint8_t* pivot_data = nullptr;
-        unsigned pivotColumnEnd;
+        unsigned pivotColumnStart, pivotColumnEnd;
 
         // Find a workable pivot:
         for (unsigned i = pivotColumn; i < rowCount; ++i)
@@ -1474,21 +1474,18 @@ CCatResult CCatDecoder::PivotedGaussianElimination(unsigned pivotColumn)
             // Grab next row index to check
             const unsigned pivotRowIndex = PivotRowIndex[i];
 
-            // Check if column range covers the loss column:
-            const unsigned pivotColumnStart = RowInfo[pivotRowIndex].ColumnStart;
-            pivotColumnEnd = RowInfo[pivotRowIndex].ColumnEnd;
-            if (pivotColumnStart > pivotColumn ||
-                pivotColumnEnd <= pivotColumn)
-            {
-                continue; // Try next row
-            }
-
             // Check if the diagonal is nonzero:
             uint8_t* data = Matrix.GetPtr() + pivotRowIndex * columnCount;
             const uint8_t diag = data[pivotColumn];
             if (diag == 0) {
                 continue; // Try next row
             }
+
+            // Check if column range covers the loss column:
+            pivotColumnStart = RowInfo[pivotRowIndex].ColumnStart;
+            CCAT_DEBUG_ASSERT(pivotColumnStart <= pivotColumn);
+            pivotColumnEnd = RowInfo[pivotRowIndex].ColumnEnd;
+            CCAT_DEBUG_ASSERT(pivotColumnEnd > pivotColumn);
 
             // Swap this pivot row into place
             if (i != pivotColumn) {
@@ -1537,21 +1534,21 @@ CCatResult CCatDecoder::PivotedGaussianElimination(unsigned pivotColumn)
             // Grab next row index to eliminate
             const unsigned elimRowIndex = PivotRowIndex[i];
 
-            // Check if column range covers the loss column:
-            const unsigned elimColumnStart = RowInfo[elimRowIndex].ColumnStart;
-            const unsigned elimColumnEnd = RowInfo[elimRowIndex].ColumnEnd;
-            if (elimColumnStart > pivotColumn ||
-                elimColumnEnd <= pivotColumn)
-            {
-                continue; // Try next row
-            }
-
             // Check if column is zero:
             uint8_t* elim_data = Matrix.GetPtr() + elimRowIndex * columnCount;
             const uint8_t elim_value = elim_data[pivotColumn];
             if (elim_value == 0) {
                 // No changes needed
                 continue;
+            }
+
+            // Since we are adding the pivot to this row, it may expand left
+            // or right with additional nonzero columns
+            if (RowInfo[elimRowIndex].ColumnStart > pivotColumnStart) {
+                RowInfo[elimRowIndex].ColumnStart = pivotColumnStart;
+            }
+            if (RowInfo[elimRowIndex].ColumnEnd < pivotColumnEnd) {
+                RowInfo[elimRowIndex].ColumnEnd = pivotColumnEnd;
             }
 
             // Add pivot row to this one
