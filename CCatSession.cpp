@@ -1423,8 +1423,7 @@ CCatResult CCatDecoder::ResumeGaussianElimination(
                 // Following rows no longer contain this column also
                 break;
             }
-            const unsigned columnEnd = RowInfo[elim_row].ColumnEnd;
-            CCAT_DEBUG_ASSERT(columnEnd >= pivotColumnEnd);
+            CCAT_DEBUG_ASSERT(RowInfo[elim_row].ColumnEnd >= pivotColumnEnd);
 
             // Muladd pivot row into this one
             const uint8_t elim_value = elim_data[row];
@@ -1838,7 +1837,6 @@ void CCatDecoder::ReleaseSpan(
     }
 
     const unsigned columnCount = ColumnCount;
-    const unsigned solutionBytes = SolutionBytes;
 
     // For each column:
     for (unsigned i = 0; i < columnCount; ++i) {
