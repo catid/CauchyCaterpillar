@@ -508,24 +508,26 @@ protected:
     /// and Free() are faster.
     struct AllocationHeader
     {
+        /// Header for this window
+        /// Note: This will be set to nullptr for fallback allocations
+        WindowHeader* Header;
+
 #ifdef PKTALLOC_DEBUG
         static const uint32_t kCanaryExpected = 0xaabbccdd;
         uint32_t Canary;
 #endif // PKTALLOC_DEBUG
 
-        /// Is this allocation already freed? (some minimal self-diagnostics)
-        uint32_t Freed;
-
         /// Number of units used right now
+        /// 0 = Freed (some minimal self-diagnostics)
         uint32_t UsedUnits;
 
-        /// Header for this window
-        /// Note: This will be set to nullptr for fallback allocations
-        WindowHeader* Header;
+        /// Wrappers for UsedUnits == 0
+        PKTALLOC_FORCE_INLINE bool IsFreed() const {
+            return UsedUnits == 0;
+        }
 
         /// Calculate which unit this allocation starts at in the window
-        unsigned GetUnitStart()
-        {
+        PKTALLOC_FORCE_INLINE unsigned GetUnitStart() const {
             return (unsigned)((uint8_t*)this - ((uint8_t*)Header + kWindowHeaderBytes)) / kUnitSize;
         }
     };
