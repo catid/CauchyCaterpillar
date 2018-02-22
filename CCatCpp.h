@@ -43,15 +43,10 @@ public:
 
         CCatSettings settings;
         settings.AppContextPtr = this;
-        settings.OnRecoveredData = [](
-            const uint8_t* data, ///< Packet data
-            unsigned bytes,      ///< Data bytes
-            uint64_t sequence,   ///< Sequence number of recovered packet
-            void* context        ///< AppContextPtr
-            )
+        settings.OnRecoveredData = [](CCatOriginal original, void* context)
         {
             CauchyCaterpillar* thiz = (CauchyCaterpillar*)context;
-            thiz->OnRecoveredData(data, bytes, sequence);
+            thiz->OnRecoveredData(original);
         };
         settings.WindowMsec = windowMsec;
         settings.WindowPackets = CCAT_MAX_WINDOW_PACKETS;
@@ -120,16 +115,10 @@ public:
     }
 
 protected:
-    virtual void OnRecoveredData(
-        const uint8_t* data, ///< Packet data
-        unsigned bytes,      ///< Data bytes
-        uint64_t sequence    ///< Sequence number of recovered packet
-    )
+    virtual void OnRecoveredData(const CCatOriginal& original)
     {
         // Default does nothing
-        (void)data;
-        (void)bytes;
-        (void)sequence;
+        (void)original;
     }
 
     bool Error = false;

@@ -74,11 +74,6 @@
 
     Alternatives:
 
-    Compared to Random Linear Codes, the decoding is 2x more reliable.
-    Encoding/decoding is faster thanks to the Cauchy matrix structure.
-    The downside is that CCat is restricted to 2000 packets per second,
-    meaning that it is not suitable for streams faster than 2 MB/s.
-
     For faster streams, using Siamese FEC is recommended:
     https://github.com/catid/siamese/
 
@@ -87,7 +82,7 @@
 */
 
 /// Library version
-#define CCAT_VERSION 1
+#define CCAT_VERSION 2
 
 // Tweak if the functions are exported or statically linked
 //#define CCAT_DLL /* Defined when building/linking as DLL */
@@ -127,6 +122,9 @@ extern "C" {
 /// Maximum size of encoder window in packets
 #define CCAT_MAX_WINDOW_PACKETS 192
 
+/// Maximum value for recovery row
+#define CCAT_MAX_RECOVERY_ROW 63
+
 /// Minimum size of encoder window in milliseconds
 #define CCAT_MIN_WINDOW_MSEC 10
 
@@ -164,27 +162,6 @@ typedef struct CCatCodec_t { int impl; }* CCatCodec;
 /// CCatAppContextPtr: Points to application context data
 typedef void* CCatAppContext;
 
-/// CCat Settings
-typedef struct CCatSettings_t
-{
-    /// Maximum window size in packets
-    unsigned WindowPackets CCAT_CPP( = 64 );
-
-    /// Maximum memory of window in milliseconds
-    unsigned WindowMsec CCAT_CPP( = 100 );
-
-    /// Application context pointer provided to callbacks
-    void* AppContextPtr CCAT_CPP( = nullptr );
-
-    /// Handle recovered data
-    void(*OnRecoveredData)(
-        const uint8_t* data, ///< Packet data
-        unsigned bytes,      ///< Data bytes
-        uint64_t sequence,   ///< Sequence number of recovered packet
-        void* context        ///< AppContextPtr
-        ) CCAT_CPP( = nullptr );
-} CCatSettings;
-
 /// CCat Original Packet
 typedef struct CCatOriginal_t
 {
@@ -215,13 +192,42 @@ typedef struct CCatRecovery_t
     /// Number of bytes in buffer
     unsigned Bytes;
 
-    /// Count parameter: Ranges from 1 ... CCatSettings::MaxWindow
-    /// Provided by ccat_encode_recovery().
+    /// Count parameter: Ranges from 1 ... CCAT_MAX_WINDOW_PACKETS
+    /// Or from 1 ... CCatSettings::WindowPackets provided by the application,
+    /// whichever is smaller.  This is filled in by ccat_encode_recovery().
     unsigned Count;
 
-    /// Recovery row parameter: Ranges from 0 ... kMatrixRowCount-1
+    /// Recovery row parameter: Ranges from 0 ... CCAT_MAX_RECOVERY_ROW
     uint8_t RecoveryRow;
 } CCatRecovery;
+
+/// CCat Settings
+typedef struct CCatSettings_t
+{
+    /// Maximum window size in packets
+    unsigned WindowPackets CCAT_CPP( = 64 );
+
+    /// Maximum memory of window in milliseconds
+    unsigned WindowMsec CCAT_CPP( = 100 );
+
+    /// Application context pointer provided to callbacks
+    void* AppContextPtr CCAT_CPP( = nullptr );
+
+    /**
+        OnRecoveredData()
+
+        Provide a callback function to receive recovered data.
+
+        This will be invoked during the call to ccat_decode_original()
+        or ccat_decode_recovery().
+
+        It is provided the AppContextPtr in the settings.
+    */
+    void(*OnRecoveredData)(
+        CCatOriginal original, /// Recovered original data
+        void* context          ///< AppContextPtr
+        ) CCAT_CPP( = nullptr );
+} CCatSettings;
 
 
 //------------------------------------------------------------------------------

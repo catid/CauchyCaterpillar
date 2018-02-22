@@ -37,13 +37,13 @@
 static const float plr = 0.1f;
 
 // FEC rate
-static const float fec = 0.15f;
+static const float fec = 0.2f;
 
 // Number of parallel runs to simulate
-static const unsigned kParallelRuns = 5;
+static const unsigned kParallelRuns = 1;
 
 // Number of packets to send per burst
-static const unsigned kSpeedMultiplier = 5;
+static const unsigned kSpeedMultiplier = 1;
 
 // Window length in time
 static const unsigned kWindowMsec = 100;
@@ -116,28 +116,27 @@ public:
     uint64_t OriginalPackets = 0;
     security::StrikeRegister StrikeRegister;
 
-    void OnRecoveredData(
-        const uint8_t* data, ///< Packet data
-        unsigned bytes,      ///< Data bytes
-        uint64_t sequence    ///< Sequence number of recovered packet
-    ) override
+    void OnRecoveredData(const CCatOriginal& original) override
     {
-        if (StrikeRegister.IsDuplicate(sequence))
+        if (StrikeRegister.IsDuplicate(original.SequenceNumber))
         {
-            Logger.Error("Saw duplicate sequence ", sequence);
+            Logger.Error("Saw duplicate sequence ", original.SequenceNumber);
             Error = true;
             return;
         }
 
-        const bool check = CheckPacket(sequence, data, bytes);
+        const bool check = CheckPacket(
+            original.SequenceNumber,
+            original.Data,
+            original.Bytes);
         if (!check)
         {
             Error = true;
-            Logger.Error("Corrupted packet ", sequence);
+            Logger.Error("Corrupted packet ", original.SequenceNumber);
             return;
         }
 
-        StrikeRegister.Accept(sequence);
+        StrikeRegister.Accept(original.SequenceNumber);
 
         ++RecoveredPackets;
         ++OriginalPackets;

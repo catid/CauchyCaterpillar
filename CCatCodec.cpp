@@ -990,11 +990,11 @@ CCatResult Decoder::SolveLostOne(const CCatRecovery& recovery)
     Lost.Clear(lostElement);
 
     // Report recovery
-    SettingsPtr->OnRecoveredData(
-        data + 2,
-        originalBytes,
-        lostSequence.ToUnsigned(),
-        SettingsPtr->AppContextPtr);
+    CCatOriginal recoveredOriginal;
+    recoveredOriginal.Data = data + 2;
+    recoveredOriginal.Bytes = originalBytes;
+    recoveredOriginal.SequenceNumber = lostSequence.ToUnsigned();
+    SettingsPtr->OnRecoveredData(recoveredOriginal, SettingsPtr->AppContextPtr);
 
     // Check if any solutions are possible with this one
     return FindSolutionsContaining(lostSequence);
@@ -1917,11 +1917,11 @@ CCatResult Decoder::ReportSolution()
         DiagonalData[column] = nullptr;
 
         // Report recovery success
-        SettingsPtr->OnRecoveredData(
-            data + 2,
-            originalBytes,
-            ColumnInfo[column].Sequence.ToUnsigned(),
-            appContextPtr);
+        CCatOriginal recoveredOriginal;
+        recoveredOriginal.Data = data + 2;
+        recoveredOriginal.Bytes = originalBytes;
+        recoveredOriginal.SequenceNumber = ColumnInfo[column].Sequence.ToUnsigned();
+        SettingsPtr->OnRecoveredData(recoveredOriginal, appContextPtr);
     }
 
     return CCat_Success;
