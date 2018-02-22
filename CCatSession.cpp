@@ -445,7 +445,7 @@ CCatDecoder::Expand CCatDecoder::ExpandWindow(Counter64 sequenceStart, unsigned 
 
     // Mark all new elements as lost
     for (unsigned i = Lost.kWords - roundWordShift; i < Lost.kWords; ++i)
-        Lost.Words[i] = ~((int64_t)0); // All lost
+        Lost.Words[i] = (uint64_t)~((int64_t)0); // All lost
 
     const unsigned lostBits = roundWordShift * 64;
     CCAT_DEBUG_ASSERT(lostBits < kDecoderWindowSize);
@@ -1251,11 +1251,10 @@ CCatResult CCatDecoder::PlanSolution()
     unsigned pivotColumnEnd = columnCount;
     {
         RecoveryPacket* recovery = RowInfo[0].Recovery;
-        Counter64 columnSequence = ColumnInfo[0].Sequence;
         const uint8_t generatorRow = CauchyRows[0];
 
-        CCAT_DEBUG_ASSERT(recovery->SequenceStart <= columnSequence);
-        CCAT_DEBUG_ASSERT(recovery->SequenceEnd > columnSequence);
+        CCAT_DEBUG_ASSERT(recovery->SequenceStart <= ColumnInfo[0].Sequence);
+        CCAT_DEBUG_ASSERT(recovery->SequenceEnd > ColumnInfo[0].Sequence);
         RowInfo[0].ColumnStart = 0;
 
         // Write element (0, 0)
@@ -1288,7 +1287,6 @@ CCatResult CCatDecoder::PlanSolution()
     {
         elim_data += columnCount;
 
-        Counter64 columnSequence = ColumnInfo[0].Sequence;
         RecoveryPacket* recovery = RowInfo[row].Recovery;
         const Counter64 rowSequenceStart = recovery->SequenceStart;
         const uint8_t generatorRow = CauchyRows[row];
@@ -1470,7 +1468,7 @@ CCatResult CCatDecoder::PivotedGaussianElimination(unsigned pivotColumn)
     for (;;)
     {
         uint8_t* pivot_data = nullptr;
-        unsigned pivotColumnStart, pivotColumnEnd;
+        unsigned pivotColumnStart = 0, pivotColumnEnd = 0;
 
         // Find a workable pivot:
         for (unsigned i = pivotColumn; i < rowCount; ++i)
@@ -1494,7 +1492,7 @@ CCatResult CCatDecoder::PivotedGaussianElimination(unsigned pivotColumn)
             // Swap this pivot row into place
             if (i != pivotColumn) {
                 const uint8_t temp = PivotRowIndex[pivotColumn];
-                PivotRowIndex[pivotColumn] = pivotRowIndex;
+                PivotRowIndex[pivotColumn] = (uint8_t)pivotRowIndex;
                 PivotRowIndex[i] = temp;
             }
 

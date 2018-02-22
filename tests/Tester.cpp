@@ -37,13 +37,13 @@
 static const float plr = 0.1f;
 
 // FEC rate
-static const float fec = 0.14f;
+static const float fec = 0.15f;
 
 // Number of parallel runs to simulate
 static const unsigned kParallelRuns = 5;
 
 // Number of packets to send per burst
-static const unsigned kSpeedMultiplier = 6;
+static const unsigned kSpeedMultiplier = 5;
 
 // Window length in time
 static const unsigned kWindowMsec = 100;
@@ -254,10 +254,10 @@ template<typename T> struct StatsCollector
         ++count;
     }
 
-    float Average() const
+    T Average() const
     {
         if (count == 0)
-            return 0.f;
+            return 0;
         return sum / count;
     }
 };
