@@ -1,5 +1,5 @@
 /** \file
-    \brief CCatCodec
+    \brief Cauchy Caterpillar : Codec
     \copyright Copyright (c) 2018 Christopher A. Taylor.  All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -27,21 +27,130 @@
     POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include "CCatSession.h"
+#include "CCatCodec.h"
+
+#ifdef _WIN32
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
+    #include <windows.h>
+#elif __MACH__
+    #include <mach/mach_time.h>
+    #include <mach/mach.h>
+    #include <mach/clock.h>
+
+    extern mach_port_t clock_port;
+#else
+    #include <time.h>
+    #include <sys/time.h>
+#endif
 
 namespace ccat {
 
 
 //------------------------------------------------------------------------------
-// CCatSession : Create
+// AlignedLightVector
 
-CCatResult CCatSession::Create(const CCatSettings& settings)
+bool AlignedLightVector::Resize(
+    pktalloc::Allocator* allocPtr,
+    unsigned elements,
+    pktalloc::Realloc behavior)
+{
+    CCAT_DEBUG_ASSERT(Size <= Allocated);
+
+    if (elements > Allocated)
+    {
+        Allocated = elements;
+        DataPtr = allocPtr->Reallocate(DataPtr, elements, behavior);
+        if (!DataPtr)
+            return false;
+    }
+
+    Size = elements;
+    return true;
+}
+
+
+//------------------------------------------------------------------------------
+// Timing
+
+#ifdef _WIN32
+// Precomputed frequency inverse
+static double PerfFrequencyInverseUsec = 0.;
+static double PerfFrequencyInverseMsec = 0.;
+
+static void InitPerfFrequencyInverse()
+{
+    LARGE_INTEGER freq = {};
+    if (!::QueryPerformanceFrequency(&freq) || freq.QuadPart == 0)
+        return;
+    const double invFreq = 1. / (double)freq.QuadPart;
+    PerfFrequencyInverseUsec = 1000000. * invFreq;
+    PerfFrequencyInverseMsec = 1000. * invFreq;
+    CCAT_DEBUG_ASSERT(PerfFrequencyInverseUsec > 0.);
+    CCAT_DEBUG_ASSERT(PerfFrequencyInverseMsec > 0.);
+}
+#elif __MACH__
+static bool m_clock_serv_init = false;
+static clock_serv_t m_clock_serv = 0;
+
+static void InitClockServ()
+{
+    m_clock_serv_init = true;
+    host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &m_clock_serv);
+}
+#endif // _WIN32
+
+uint64_t GetTimeUsec()
+{
+#ifdef _WIN32
+    LARGE_INTEGER timeStamp = {};
+    if (!::QueryPerformanceCounter(&timeStamp))
+        return 0;
+    if (PerfFrequencyInverseUsec == 0.)
+        InitPerfFrequencyInverse();
+    return (uint64_t)(PerfFrequencyInverseUsec * timeStamp.QuadPart);
+#elif __MACH__
+    if (!m_clock_serv_init)
+        InitClockServ();
+
+    mach_timespec_t tv;
+    clock_get_time(m_clock_serv, &tv);
+
+    return 1000000 * tv.tv_sec + tv.tv_nsec / 1000;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return 1000000 * tv.tv_sec + tv.tv_usec;
+#endif
+}
+
+uint64_t GetTimeMsec()
+{
+#ifdef _WIN32
+    LARGE_INTEGER timeStamp = {};
+    if (!::QueryPerformanceCounter(&timeStamp))
+        return 0;
+    if (PerfFrequencyInverseMsec == 0.)
+        InitPerfFrequencyInverse();
+    return (uint64_t)(PerfFrequencyInverseMsec * timeStamp.QuadPart);
+#else
+    // TBD: Optimize this?
+    return GetTimeUsec() / 1000;
+#endif
+}
+
+
+//------------------------------------------------------------------------------
+// Codec : Create
+
+CCatResult Codec::Create(const CCatSettings& settings)
 {
     Settings = settings;
-    CCatEncoder::SettingsPtr = &Settings;
-    CCatEncoder::AllocPtr = &Alloc;
-    CCatDecoder::SettingsPtr = &Settings;
-    CCatDecoder::AllocPtr = &Alloc;
+    Encoder::SettingsPtr = &Settings;
+    Encoder::AllocPtr = &Alloc;
+    Decoder::SettingsPtr = &Settings;
+    Decoder::AllocPtr = &Alloc;
 
     if (Settings.WindowPackets < kMinEncoderWindowSize)
         Settings.WindowPackets = kMinEncoderWindowSize;
@@ -58,9 +167,9 @@ CCatResult CCatSession::Create(const CCatSettings& settings)
 
 
 //------------------------------------------------------------------------------
-// CCatEncoder
+// Encoder
 
-CCatResult CCatEncoder::EncodeOriginal(const CCatOriginal& original)
+CCatResult Encoder::EncodeOriginal(const CCatOriginal& original)
 {
     // Validate input
     if (!original.Data ||
@@ -96,7 +205,6 @@ CCatResult CCatEncoder::EncodeOriginal(const CCatOriginal& original)
     LastOriginalSendUsec = nowUsec;
 
     // Fill in element metadata
-    element->Bytes = kEncodeOverhead + original.Bytes;
     element->SendUsec = nowUsec;
 
     // Keep track of count of packets stored
@@ -125,7 +233,7 @@ CCatResult CCatEncoder::EncodeOriginal(const CCatOriginal& original)
     (2) Run forward through the encode window, and xor or muladd the
     original packet data into the recovery packet output.
 */
-CCatResult CCatEncoder::EncodeRecovery(CCatRecovery& recoveryOut)
+CCatResult Encoder::EncodeRecovery(CCatRecovery& recoveryOut)
 {
     // Step (1): Find the set of packets to encode.
 
@@ -160,8 +268,8 @@ CCatResult CCatEncoder::EncodeRecovery(CCatRecovery& recoveryOut)
             column = kMatrixColumnCount;
         column--;
         ++count;
-        if (maxBytes < element->Bytes)
-            maxBytes = element->Bytes;
+        if (maxBytes < element->Data.GetSize())
+            maxBytes = element->Data.GetSize();
 
         // If window filled up:
         if (count >= windowSize)
@@ -189,16 +297,10 @@ CCatResult CCatEncoder::EncodeRecovery(CCatRecovery& recoveryOut)
     if (count == 1)
     {
         EncoderWindowElement* element = &Window[index];
-        CCAT_DEBUG_ASSERT(element->Bytes > 2);
-        CCAT_DEBUG_ASSERT(element->Data.GetSize() == element->Bytes);
-        const uint8_t* data = element->Data.GetPtr();
-        const unsigned dataBytes = element->Bytes;
-
-        static_assert(kEncodeOverhead == 2, "Update this too");
-        recoveryOut.Data = data; // Include length overhead.  TBD: Optimize this?
+        recoveryOut.Data = element->Data.GetPtr();
         recoveryOut.Count = 1;
         recoveryOut.SequenceStart = sequenceStart.ToUnsigned();
-        recoveryOut.Bytes = dataBytes;
+        recoveryOut.Bytes = element->Data.GetSize();
         recoveryOut.RecoveryRow = 0;
 
         return CCat_Success;
@@ -240,10 +342,9 @@ CCatResult CCatEncoder::EncodeRecovery(CCatRecovery& recoveryOut)
     // Unroll first column:
     {
         EncoderWindowElement* element = &Window[index];
-        CCAT_DEBUG_ASSERT(element->Bytes > 2);
-        CCAT_DEBUG_ASSERT(element->Data.GetSize() == element->Bytes);
+        CCAT_DEBUG_ASSERT(element->Data.GetSize() > 2);
         const uint8_t* data = element->Data.GetPtr();
-        const unsigned dataBytes = element->Bytes;
+        const unsigned dataBytes = element->Data.GetSize();
 
         // Write column
         if (isParityRow)
@@ -265,10 +366,9 @@ CCatResult CCatEncoder::EncodeRecovery(CCatRecovery& recoveryOut)
         if (++index >= kMaxEncoderWindowSize)
             index = 0;
         EncoderWindowElement* element = &Window[index];
-        CCAT_DEBUG_ASSERT(element->Bytes > 2);
-        CCAT_DEBUG_ASSERT(element->Data.GetSize() == element->Bytes);
+        CCAT_DEBUG_ASSERT(element->Data.GetSize() > 2);
         const uint8_t* data = element->Data.GetPtr();
-        const unsigned dataBytes = element->Bytes;
+        const unsigned dataBytes = element->Data.GetSize();
 
         // Write column
         if (isParityRow)
@@ -287,9 +387,9 @@ CCatResult CCatEncoder::EncodeRecovery(CCatRecovery& recoveryOut)
 
 
 //------------------------------------------------------------------------------
-// CCatDecoder
+// Decoder
 
-CCatResult CCatDecoder::DecodeRecovery(const CCatRecovery& recovery)
+CCatResult Decoder::DecodeRecovery(const CCatRecovery& recovery)
 {
     // Expand window based on recovery span.  If the recovery packet includes some
     // data that was lost, this will expand the window to the right
@@ -335,7 +435,7 @@ CCatResult CCatDecoder::DecodeRecovery(const CCatRecovery& recovery)
     return FindSolutions();
 }
 
-CCatResult CCatDecoder::DecodeOriginal(const CCatOriginal& original)
+CCatResult Decoder::DecodeOriginal(const CCatOriginal& original)
 {
     CCatResult result = CCat_Success;
 
@@ -377,7 +477,7 @@ CCatResult CCatDecoder::DecodeOriginal(const CCatOriginal& original)
     return result;
 }
 
-CCatDecoder::Expand CCatDecoder::ExpandWindow(Counter64 sequenceStart, unsigned count)
+Decoder::Expand Decoder::ExpandWindow(Counter64 sequenceStart, unsigned count)
 {
     /*
         The extent of the recovery packet span often indicates a lost original
@@ -474,7 +574,7 @@ CCatDecoder::Expand CCatDecoder::ExpandWindow(Counter64 sequenceStart, unsigned 
     return Expand::Shifted;
 }
 
-void CCatDecoder::ClearRecoveryList()
+void Decoder::ClearRecoveryList()
 {
     // For each recovery packet:
     for (RecoveryPacket* recovery = RecoveryFirst, *next; recovery; recovery = next)
@@ -491,7 +591,7 @@ void CCatDecoder::ClearRecoveryList()
     RecoveryLast = nullptr;
 }
 
-void CCatDecoder::CleanupRecoveryList()
+void Decoder::CleanupRecoveryList()
 {
     const Counter64 sequenceBase = SequenceBase;
 
@@ -521,7 +621,7 @@ void CCatDecoder::CleanupRecoveryList()
     RecoveryLast = nullptr;
 }
 
-CCatResult CCatDecoder::StoreOriginal(const CCatOriginal& original)
+CCatResult Decoder::StoreOriginal(const CCatOriginal& original)
 {
     const Counter64 sequence = original.SequenceNumber;
     const unsigned element = (unsigned)(sequence - SequenceBase).ToUnsigned();
@@ -552,7 +652,7 @@ CCatResult CCatDecoder::StoreOriginal(const CCatOriginal& original)
     return CCat_Success;
 }
 
-CCatResult CCatDecoder::StoreRecovery(const CCatRecovery& recovery)
+CCatResult Decoder::StoreRecovery(const CCatRecovery& recovery)
 {
     // Allocate packet
     uint8_t* data = AllocPtr->Allocate(recovery.Bytes);
@@ -795,7 +895,7 @@ CCatResult CCatDecoder::StoreRecovery(const CCatRecovery& recovery)
     solutions are found.
 */
 
-CCatResult CCatDecoder::SolveLostOne(const CCatRecovery& recovery)
+CCatResult Decoder::SolveLostOne(const CCatRecovery& recovery)
 {
     // Calculate element range
     const Counter64 sequenceStart = recovery.SequenceStart;
@@ -900,7 +1000,7 @@ CCatResult CCatDecoder::SolveLostOne(const CCatRecovery& recovery)
     return FindSolutionsContaining(lostSequence);
 }
 
-CCatResult CCatDecoder::FindSolutionsContaining(const Counter64 sequence)
+CCatResult Decoder::FindSolutionsContaining(const Counter64 sequence)
 {
     // If there is no recovery list:
     if (!RecoveryLast) {
@@ -947,7 +1047,7 @@ CCatResult CCatDecoder::FindSolutionsContaining(const Counter64 sequence)
     return FindSolutions();
 }
 
-CCatResult CCatDecoder::FindSolutions()
+CCatResult Decoder::FindSolutions()
 {
     RecoveryPacket* next = RecoveryLast;
     if (!next) {
@@ -1053,7 +1153,7 @@ CCatResult CCatDecoder::FindSolutions()
     return CCat_NeedsMoreData;
 }
 
-CCatResult CCatDecoder::Solve(RecoveryPacket* spanStart, RecoveryPacket* spanEnd)
+CCatResult Decoder::Solve(RecoveryPacket* spanStart, RecoveryPacket* spanEnd)
 {
     CCAT_DEBUG_ASSERT(spanStart != nullptr && spanEnd != nullptr);
 
@@ -1101,7 +1201,7 @@ OnFail:
     return FindSolutions();
 }
 
-CCatResult CCatDecoder::ArraysFromSpans(RecoveryPacket* spanStart, RecoveryPacket* spanEnd)
+CCatResult Decoder::ArraysFromSpans(RecoveryPacket* spanStart, RecoveryPacket* spanEnd)
 {
     SolutionBytes = 0;
     RowCount = 0;
@@ -1217,7 +1317,7 @@ CCatResult CCatDecoder::ArraysFromSpans(RecoveryPacket* spanStart, RecoveryPacke
     return CCat_Success;
 }
 
-CCatResult CCatDecoder::PlanSolution()
+CCatResult Decoder::PlanSolution()
 {
     // Note we could allocate the matrix rows on aligned memory addresses,
     // but for CCat the matrix is banded and not aligned to the left
@@ -1363,7 +1463,7 @@ CCatResult CCatDecoder::PlanSolution()
     return ResumeGaussianElimination(pivot_data, 1);
 }
 
-CCatResult CCatDecoder::ResumeGaussianElimination(
+CCatResult Decoder::ResumeGaussianElimination(
     uint8_t* pivot_data,
     unsigned row)
 {
@@ -1458,7 +1558,7 @@ CCatResult CCatDecoder::ResumeGaussianElimination(
     return CCat_Success;
 }
 
-CCatResult CCatDecoder::PivotedGaussianElimination(unsigned pivotColumn)
+CCatResult Decoder::PivotedGaussianElimination(unsigned pivotColumn)
 {
     const unsigned rowCount = RowCount;
     const unsigned columnCount = ColumnCount;
@@ -1580,7 +1680,7 @@ CCatResult CCatDecoder::PivotedGaussianElimination(unsigned pivotColumn)
     return CCat_Success;
 }
 
-CCatResult CCatDecoder::EliminateOriginals()
+CCatResult Decoder::EliminateOriginals()
 {
     const unsigned solutionBytes = SolutionBytes;
     const unsigned columnCount = ColumnCount;
@@ -1719,7 +1819,7 @@ CCatResult CCatDecoder::EliminateOriginals()
     return CCat_Success;
 }
 
-void CCatDecoder::ExecuteSolutionPlan()
+void Decoder::ExecuteSolutionPlan()
 {
     const unsigned columnCount = ColumnCount;
     const unsigned solutionBytes = SolutionBytes;
@@ -1766,7 +1866,7 @@ void CCatDecoder::ExecuteSolutionPlan()
     Lost.ClearRange(elementStart, elementEnd);
 }
 
-CCatResult CCatDecoder::ReportSolution()
+CCatResult Decoder::ReportSolution()
 {
     const unsigned columnCount = ColumnCount;
     const unsigned solutionBytes = SolutionBytes;
@@ -1827,7 +1927,7 @@ CCatResult CCatDecoder::ReportSolution()
     return CCat_Success;
 }
 
-void CCatDecoder::ReleaseSpan(
+void Decoder::ReleaseSpan(
     RecoveryPacket* spanStart,
     RecoveryPacket* spanEnd,
     CCatResult solveResult)

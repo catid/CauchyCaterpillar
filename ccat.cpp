@@ -28,7 +28,7 @@
 */
 
 #include "ccat.h"
-#include "CCatSession.h"
+#include "CCatCodec.h"
 
 #include <new>
 
@@ -55,7 +55,7 @@ CCAT_EXPORT CCatResult ccat_create(
         return CCat_Error;
 
     // Allocate aligned object
-    CCatSession* codec = new (std::nothrow) CCatSession;
+    Codec* codec = new (std::nothrow) Codec;
     if (!codec)
         return CCat_OOM;
 
@@ -72,7 +72,7 @@ CCAT_EXPORT CCatResult ccat_encode_original(
     const CCatOriginal* original
 )
 {
-    CCatSession* session = reinterpret_cast<CCatSession*>(codec);
+    Codec* session = reinterpret_cast<Codec*>(codec);
     if (!session)
         return CCat_InvalidInput;
     return session->EncodeOriginal(*original);
@@ -83,7 +83,7 @@ CCAT_EXPORT CCatResult ccat_encode_recovery(
     CCatRecovery* recoveryOut
 )
 {
-    CCatSession* session = reinterpret_cast<CCatSession*>(codec);
+    Codec* session = reinterpret_cast<Codec*>(codec);
     if (!session)
         return CCat_InvalidInput;
     return session->EncodeRecovery(*recoveryOut);
@@ -94,7 +94,7 @@ CCAT_EXPORT CCatResult ccat_decode_original(
     const CCatOriginal* original
 )
 {
-    CCatSession* session = reinterpret_cast<CCatSession*>(codec);
+    Codec* session = reinterpret_cast<Codec*>(codec);
     if (!session)
         return CCat_InvalidInput;
     return session->DecodeOriginal(*original);
@@ -105,7 +105,7 @@ CCAT_EXPORT CCatResult ccat_decode_recovery(
     const CCatRecovery* recovery
 )
 {
-    CCatSession* session = reinterpret_cast<CCatSession*>(codec);
+    Codec* session = reinterpret_cast<Codec*>(codec);
     if (!session)
         return CCat_InvalidInput;
     CCatResult result = session->DecodeRecovery(*recovery);
@@ -120,7 +120,7 @@ CCAT_EXPORT CCatResult ccat_destroy(
     CCatCodec codec
 )
 {
-    CCatSession* session = reinterpret_cast<CCatSession*>(codec);
+    Codec* session = reinterpret_cast<Codec*>(codec);
     if (!session)
         return CCat_InvalidInput;
 

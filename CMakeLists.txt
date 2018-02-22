@@ -33,15 +33,13 @@ set(PKTALLOC_LIB_SRCFILES
 set(CCAT_LIB_SRCFILES
         ccat.cpp
         ccat.h
-        CCatCpp.h
-        CCatSession.cpp
-        CCatSession.h
-        CCatTools.cpp
-        CCatTools.h
+        CCatCodec.cpp
+        CCatCodec.h
         Counter.h)
 
 # CCat unit tester
 set(CCAT_TEST_SRCFILES
+        CCatCpp.h
         tests/Counter.h
         tests/Logger.cpp
         tests/Logger.h

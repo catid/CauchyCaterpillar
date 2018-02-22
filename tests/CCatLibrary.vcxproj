@@ -20,16 +20,14 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\ccat.cpp" />
-    <ClCompile Include="..\CCatSession.cpp" />
-    <ClCompile Include="..\CCatTools.cpp" />
+    <ClCompile Include="..\CCatCodec.cpp" />
     <ClCompile Include="..\gf256.cpp" />
     <ClCompile Include="..\PacketAllocator.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\ccat.h" />
     <ClInclude Include="..\CCatCpp.h" />
-    <ClInclude Include="..\CCatSession.h" />
-    <ClInclude Include="..\CCatTools.h" />
+    <ClInclude Include="..\CCatCodec.h" />
     <ClInclude Include="..\Counter.h" />
     <ClInclude Include="..\gf256.h" />
     <ClInclude Include="..\PacketAllocator.h" />

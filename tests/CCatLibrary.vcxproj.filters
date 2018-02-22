@@ -3,17 +3,15 @@
   <ItemGroup>
     <ClCompile Include="..\gf256.cpp" />
     <ClCompile Include="..\ccat.cpp" />
-    <ClCompile Include="..\CCatSession.cpp" />
     <ClCompile Include="..\PacketAllocator.cpp" />
-    <ClCompile Include="..\CCatTools.cpp" />
+    <ClCompile Include="..\CCatCodec.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Counter.h" />
     <ClInclude Include="..\gf256.h" />
     <ClInclude Include="..\ccat.h" />
-    <ClInclude Include="..\CCatSession.h" />
     <ClInclude Include="..\PacketAllocator.h" />
-    <ClInclude Include="..\CCatTools.h" />
     <ClInclude Include="..\CCatCpp.h" />
+    <ClInclude Include="..\CCatCodec.h" />
   </ItemGroup>
 </Project>
