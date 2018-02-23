@@ -1,0 +1,33 @@
+https://codepen.io/anon/pen/OQwgjp?editors=0010
+
+
+console.log("downloading data!");
+
+d3.tsv("https://gist.githubusercontent.com/catid/cdfb15da3918869f08057abbe312b085/raw/e11af47fb435dee5088dd2c6bf52d089dea9e01a/simulation_results.tab", function(data) {
+  console.log("got data!");
+
+  a=[]; b=[]; c=[];
+  
+  var len = data.length;
+  for (var i = 0; i < len; i++) {
+    if (data[i].ELossMin > 0.99) {
+      a.push(data[i].PLR);
+      b.push(data[i].FEC);
+      c.push(data[i].PPS);
+    }
+  }
+
+  var data2=[
+    {
+      alphahull:5,
+      opacity:0.8,
+      color:'rgb(0,255,100)',
+        type: 'mesh3d',
+        x: a,
+        y: b,
+        z: c
+      }
+  ];
+  Plotly.newPlot('myDiv', data2);
+
+});

@@ -43,12 +43,26 @@ CCat will not deliver two packets with the same sequence number.
 CCat can deliver data out of order, so its output should be fed into
 a dejitter buffer.
 
+#### How much FEC to send?
+
+Based on my simulations you should send at minimum 1.75x the packetloss rate (PLR) or it will not be effective.  I'd recommend just doubling or tripling the packetloss rate.
+
+![alt text](https://github.com/catid/CauchyCaterpillar/raw/master/docs/gack_top_plr_fec.png "Operation hull for PLR versus FEC")
+
+The tester generates the minimum "effective packetloss" from a set of 1000 parallel simulations.  The operation hull above is the region in which Cauchy Caterpillar has a minimum effective packetloss of 1% or better.  The script that generated it is in the docs: [gack_generator_js.txt](https://github.com/catid/CauchyCaterpillar/raw/master/docs/gack_generator_js.txt).
+
+What this demonstrates is there's a roughly linear relationship between minimum FEC rate and PLR, with a slope of about 1.75.
+
 #### Limitations and alternatives:
 
 It supports up to 30% redundancy, and so loss rates above about 20%
 are too high for it to effectively handle.
 
-TODO: Determine how much FEC to send at different data rates/loss rates.
+Max original data stream rate = 2500 packets/second for 1% PLR down to 2000 packets/second for 10% PLR.  This limits the codec to about 2000 packets/second * 1300 bytes/packet = 2.8 Megabytes/second or less.
+
+![alt text](https://github.com/catid/CauchyCaterpillar/raw/master/docs/gack_side_data_rate.png "Operation hull for Data Rate")
+
+From the operation hull it's clear there's some non-linear relationship between FEC/PLR/DataRate, but basically it ranges from 2K to 2.5K packets/second before the code loses effectiveness.
 
 For faster streams, using Siamese FEC is recommended:
 https://github.com/catid/siamese/

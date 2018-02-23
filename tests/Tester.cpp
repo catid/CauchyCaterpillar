@@ -32,18 +32,15 @@
 #include "SiameseTools.h"
 #include "StrikeRegister.h"
 
+#include <fstream>
+using namespace std;
 
-// Number of parallel runs to simulate
-static const unsigned kParallelRuns = 1;
-
-// Number of packets to send per burst
-static const unsigned kSpeedMultiplier = 1;
 
 // Window length in time
 static const unsigned kWindowMsec = 100;
 
 // Maximum size of test packets
-static const size_t kTestPacketMaxBytes = 1000;
+static const size_t kTestPacketMaxBytes = 33;
 
 
 // Compiler-specific debug break
@@ -183,7 +180,7 @@ struct RunState
         ++PacketsSent;
 
         // Precalculate PLR 32-bit PRNG threshold
-        static const uint32_t kPlrPRNG32Thresh = (uint32_t)(0xffffffff * plr);
+        const uint32_t kPlrPRNG32Thresh = (uint32_t)(0xffffffff * plr);
 
         if (Prng.Next() > kPlrPRNG32Thresh)
         {
@@ -258,15 +255,23 @@ template<typename T> struct StatsCollector
     }
 };
 
-int main()
+struct TestResults
 {
-    // Packetloss rate
-    static const float plr = 0.1f;
+    unsigned PacketsPerSecond = 0;
+    float MinimumEffectiveLoss = 0.f;
+    float AverageEffectiveLoss = 0.f;
+    float MaximumEffectiveLoss = 0.f;
+};
 
-    // FEC rate
-    static const float fec = 0.2f;
-
-    Logger.Info("Cauchy Caterpillar Tester");
+bool GetMinimumResult(
+    float plr,
+    float fec,
+    unsigned speedMult,
+    unsigned durationSeconds,
+    TestResults& results)
+{
+    // Number of parallel runs to simulate
+    static const unsigned kParallelRuns = 100;
 
     RunState Runs[kParallelRuns];
 
@@ -278,7 +283,7 @@ int main()
         {
             Logger.Error("Initialization failed ", i);
             TESTER_DEBUG_BREAK();
-            return -1;
+            return false;
         }
     }
 
@@ -288,35 +293,114 @@ int main()
     {
         for (unsigned i = 0; i < kParallelRuns; ++i)
         {
-            for (unsigned j = 0; j < kSpeedMultiplier; ++j)
+            for (unsigned j = 0; j < speedMult; ++j)
             {
                 if (!Runs[i].Run(plr)) {
                     Logger.Error("A codec experienced an error and had to stop");
                     TESTER_DEBUG_BREAK();
-                    return -1;
+                    return false;
                 }
             }
         }
 
         const uint64_t t1 = siamese::GetTimeMsec();
 
-        if (t1 - t0 > 1000)
+        if (t1 - t0 > durationSeconds * 1000)
         {
             t0 = t1;
 
             StatsCollector<float> eloss;
             StatsCollector<unsigned> count;
+            StatsCollector<unsigned> fecsent;
             for (unsigned i = 0; i < kParallelRuns; ++i) {
                 eloss.Update(Runs[i].GetEffLoss());
                 count.Update(Runs[i].GetResetPacketCounter());
+                fecsent.Update(Runs[i].FECSent);
             }
 
+#if 0
             Logger.Info(Runs[0].Sequence, ": ", eloss.minimum * 100.f, "% / ",
                 eloss.Average() * 100.f, "% / ", eloss.maximum * 100.f,
                 "% (min/avg/max) effective loss. ", count.Average(), " originals/second");
+
+            Logger.Info(Runs[0].Sequence, ": ", fecsent.minimum, " / ", fecsent.Average(), " / ", fecsent.maximum);
+            Logger.Info(Runs[0].Sequence, ": ", count.minimum, " / ", count.Average(), " / ", count.maximum);
+#endif
+            results.PacketsPerSecond = count.Average() / (float)durationSeconds;
+            results.MinimumEffectiveLoss = eloss.minimum;
+            results.AverageEffectiveLoss = eloss.Average();
+            results.MaximumEffectiveLoss = eloss.maximum;
+
+            break; // Stop after test ends
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    return true;
+}
+
+static ofstream m_File;
+static std::mutex m_SyncLock;
+static std::atomic<bool> m_TestFailed;
+
+void TestFECRate(float plr, float fec, unsigned speedMult, unsigned durationSeconds)
+{
+    TestResults results;
+    if (!GetMinimumResult(plr, fec, speedMult, durationSeconds, results)) {
+        m_TestFailed = true;
+        return;
+    }
+
+    std::lock_guard<std::mutex> locker(m_SyncLock);
+
+    m_File << plr << "\t" << fec << "\t" << results.PacketsPerSecond << "\t" <<
+        results.MinimumEffectiveLoss << "\t" << results.AverageEffectiveLoss << "\t" <<
+        results.MaximumEffectiveLoss << endl;
+
+    Logger.Info(plr, "\t", fec, "\t", results.PacketsPerSecond, "\t",
+        results.MinimumEffectiveLoss, "\t", results.AverageEffectiveLoss, "\t",
+        results.MaximumEffectiveLoss);
+}
+
+int main()
+{
+    Logger.Info("Cauchy Caterpillar Tester");
+
+    // Duration of test in seconds
+    const unsigned durationSeconds = 10;
+
+    static const char* kLeaderStr = "PLR\tFEC\tPPS\tELossMin\tELossAvg\tELossMax";
+
+    m_File.open("simulation_results.txt");
+    if (!m_File)
+    {
+        Logger.Error("Unable to open output file");
+        return -1;
+    }
+    m_File << kLeaderStr << endl;
+
+    Logger.Info(kLeaderStr);
+
+    for (unsigned speedMult = 1; speedMult < 10; ++speedMult)
+    {
+        for (float plr = 0.01; plr < 0.1; plr += 0.005)
+        {
+            m_TestFailed = false;
+
+#pragma omp parallel for
+            for (int i = 0; i < 20 * 2; ++i)
+            //for (float fec = 0.01; fec < 0.2; fec += 0.005)
+            //const float fec = 0.01f;
+            {
+                const float fec = i * 0.005f;
+
+                TestFECRate(plr, fec, speedMult, durationSeconds);
+            }
+
+            if (m_TestFailed)
+                return -1;
+        }
     }
 
     TESTER_DEBUG_BREAK();
