@@ -58,7 +58,7 @@ What this demonstrates is there's a roughly linear relationship between minimum 
 It supports up to 30% redundancy, and so loss rates above about 20%
 are too high for it to effectively handle.
 
-Max original data stream rate = 2500 packets/second for 1% PLR down to 2000 packets/second for 10% PLR.  This limits the codec to about 2000 packets/second * 1300 bytes/packet = 2.8 Megabytes/second or less.
+For a window of 100 milliseconds: The maximum original data stream rate is 2500 packets/second for 1% PLR down to 2000 packets/second for 10% PLR.  This limits the codec to about 2000 packets/second * 1300 bytes/packet = 2.8 Megabytes/second or less.
 
 ![alt text](https://github.com/catid/CauchyCaterpillar/raw/master/docs/gack_side_data_rate.png "Operation hull for Data Rate")
 
