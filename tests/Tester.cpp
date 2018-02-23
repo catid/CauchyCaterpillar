@@ -33,12 +33,6 @@
 #include "StrikeRegister.h"
 
 
-// Packetloss rate
-static const float plr = 0.1f;
-
-// FEC rate
-static const float fec = 0.2f;
-
 // Number of parallel runs to simulate
 static const unsigned kParallelRuns = 1;
 
@@ -104,12 +98,12 @@ static bool CheckPacket(uint64_t sequence, const void* data, size_t bytes)
     return 0 == memcmp(expected, data, bytes);
 }
 
-class Sender : public CauchyCaterpillar
+class TestSender : public CauchyCaterpillar
 {
 public:
 };
 
-class Receiver : public CauchyCaterpillar
+class TestReceiver : public CauchyCaterpillar
 {
 public:
     uint64_t RecoveredPackets = 0;
@@ -145,88 +139,91 @@ public:
 
 struct RunState
 {
-    Sender sender;
-    Receiver receiver;
-    siamese::PCGRandom prng;
-    uint64_t sequence = 0;
-    uint64_t fecSent = 0;
-    unsigned packetsSent = 0;
+    TestSender Sender;
+    TestReceiver Receiver;
+    siamese::PCGRandom Prng;
+    uint64_t Sequence = 0;
+    uint64_t FECSent = 0;
+    unsigned PacketsSent = 0;
+    float FECRate = 0.f;
 
-    bool Initialize(unsigned runIndex, uint64_t seed)
+    bool Initialize(unsigned runIndex, uint64_t seed, float fecRate)
     {
-        if (!sender.Initialize(kWindowMsec))
+        FECRate = fecRate;
+
+        if (!Sender.Initialize(kWindowMsec))
         {
             Logger.Error("Failed to initialize sender");
             return false;
         }
 
-        if (!receiver.Initialize(kWindowMsec))
+        if (!Receiver.Initialize(kWindowMsec))
         {
             Logger.Error("Failed to initialize receiver");
             return false;
         }
 
-        prng.Seed(runIndex, seed);
+        Prng.Seed(runIndex, seed);
 
         return true;
     }
 
-    bool Run()
+    bool Run(float plr)
     {
         // Generate a packet
         uint8_t data[kTestPacketMaxBytes];
-        size_t bytes = (prng.Next() % kTestPacketMaxBytes) + 1;
-        SetPacket(sequence, data, bytes);
+        size_t bytes = (Prng.Next() % kTestPacketMaxBytes) + 1;
+        SetPacket(Sequence, data, bytes);
 
         CCatOriginal original;
-        original.SequenceNumber = sequence++;
+        original.SequenceNumber = Sequence++;
         original.Data = data;
         original.Bytes = (unsigned)bytes;
-        sender.SendOriginal(original);
-        ++packetsSent;
+        Sender.SendOriginal(original);
+        ++PacketsSent;
 
         // Precalculate PLR 32-bit PRNG threshold
         static const uint32_t kPlrPRNG32Thresh = (uint32_t)(0xffffffff * plr);
 
-        if (prng.Next() > kPlrPRNG32Thresh)
+        if (Prng.Next() > kPlrPRNG32Thresh)
         {
-            if (receiver.StrikeRegister.IsDuplicate(original.SequenceNumber))
+            if (Receiver.StrikeRegister.IsDuplicate(original.SequenceNumber))
             {
                 Logger.Error("Saw duplicate sequence ", original.SequenceNumber);
                 return false;
             }
             // Would check packet here
-            receiver.StrikeRegister.Accept(original.SequenceNumber);
+            Receiver.StrikeRegister.Accept(original.SequenceNumber);
 
-            ++receiver.OriginalPackets;
-            receiver.OnOriginal(original);
+            ++Receiver.OriginalPackets;
+            Receiver.OnOriginal(original);
         }
 
         // Maintain a fixed FEC rate >= fec / (original + fec)
-        if (fecSent < (uint64_t)(fec * (sequence + fecSent)))
+        if (FECSent < (uint64_t)(FECRate * (Sequence + FECSent)))
         {
             CCatRecovery recovery;
-            sender.SendRecovery(recovery);
-            ++fecSent;
+            Sender.SendRecovery(recovery);
+            ++FECSent;
 
-            if (prng.Next() > kPlrPRNG32Thresh)
+            if (Prng.Next() > kPlrPRNG32Thresh)
             {
-                receiver.OnRecovery(recovery);
+                Receiver.OnRecovery(recovery);
             }
         }
 
-        return (!sender.IsError() && !receiver.IsError());
+        return (!Sender.IsError() && !Receiver.IsError());
     }
 
     float GetEffLoss() const
     {
-        return receiver.OriginalPackets / (float)sequence;
+        return Receiver.OriginalPackets / (float)Sequence;
     }
 
     unsigned GetResetPacketCounter()
     {
-        unsigned value = packetsSent;
-        packetsSent = 0;
+        unsigned value = PacketsSent;
+        PacketsSent = 0;
         return value;
     }
 };
@@ -263,6 +260,12 @@ template<typename T> struct StatsCollector
 
 int main()
 {
+    // Packetloss rate
+    static const float plr = 0.1f;
+
+    // FEC rate
+    static const float fec = 0.2f;
+
     Logger.Info("Cauchy Caterpillar Tester");
 
     RunState Runs[kParallelRuns];
@@ -271,7 +274,7 @@ int main()
 
     for (unsigned i = 0; i < kParallelRuns; ++i)
     {
-        if (!Runs[i].Initialize(i, kExperimentSeed))
+        if (!Runs[i].Initialize(i, kExperimentSeed, fec))
         {
             Logger.Error("Initialization failed ", i);
             TESTER_DEBUG_BREAK();
@@ -287,7 +290,7 @@ int main()
         {
             for (unsigned j = 0; j < kSpeedMultiplier; ++j)
             {
-                if (!Runs[i].Run()) {
+                if (!Runs[i].Run(plr)) {
                     Logger.Error("A codec experienced an error and had to stop");
                     TESTER_DEBUG_BREAK();
                     return -1;
@@ -308,7 +311,7 @@ int main()
                 count.Update(Runs[i].GetResetPacketCounter());
             }
 
-            Logger.Info(Runs[0].sequence, ": ", eloss.minimum * 100.f, "% / ",
+            Logger.Info(Runs[0].Sequence, ": ", eloss.minimum * 100.f, "% / ",
                 eloss.Average() * 100.f, "% / ", eloss.maximum * 100.f,
                 "% (min/avg/max) effective loss. ", count.Average(), " originals/second");
         }
