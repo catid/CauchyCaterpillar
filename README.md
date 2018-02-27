@@ -4,7 +4,7 @@ CCat : The Cauchy Caterpillar - Streaming Erasure Code With Short Memory
 ccat.h provides a simple C API for streaming erasure codes with a
 fixed window.  This is designed to be used by low-latency netcode.
 It generates redundant packets that can fill in for lost originals
-in a stream of data probably sent over UDP sockets.
+in a stream of UDP datagrams.
 
 Example applications:
 * VoIP
@@ -29,10 +29,9 @@ https://github.com/catid/CauchyCaterpillar/blob/master/tests/Tester.cpp
 
 #### Thread-safety:
 
-Applications using the library can use different locks to protect the
-ccat_encode_xxx() functions and the ccat_decode_xxx() functions, because no data
-is shared between those.  Otherwise the library is not thread-safe and
-does require locking on the application-side.
+Applications can use different locks to protect the ccat_encode_xxx() functions
+and the ccat_decode_xxx() functions, because no data is shared between those.
+Otherwise the library is not thread-safe.
 
 #### Packet de-duplication:
 
@@ -40,12 +39,11 @@ CCat will not deliver two packets with the same sequence number.
 
 #### Packet re-ordering:
 
-CCat can deliver data out of order, so its output should be fed into
-a dejitter buffer.
+CCat can deliver data out of order.
 
-#### How much FEC to send?
+#### How many FEC packets should be sent?
 
-Based on my simulations you should send at minimum 1.75x the packetloss rate (PLR) or it will not be effective.  I'd recommend just doubling or tripling the packetloss rate.
+Based on my simulations you should send at minimum 1.75x the packetloss rate (PLR) or it will not be effective.  I'd recommend just doubling the detected PLR.
 
 ![alt text](https://github.com/catid/CauchyCaterpillar/raw/master/docs/gack_top_plr_fec.png "Operation hull for PLR versus FEC")
 
@@ -55,14 +53,13 @@ What this demonstrates is there's a roughly linear relationship between minimum 
 
 #### Limitations and alternatives:
 
-It supports up to 30% redundancy, and so loss rates above about 20%
-are too high for it to effectively handle.
+It supports up to 30% redundancy, and so loss rates above about 20% are too high for it to handle.
 
 For a window of 100 milliseconds: The maximum original data stream rate is 2500 packets/second for 1% PLR down to 2000 packets/second for 10% PLR.  This limits the codec to about 2000 packets/second * 1300 bytes/packet = 2.8 Megabytes/second or less.
 
 ![alt text](https://github.com/catid/CauchyCaterpillar/raw/master/docs/gack_side_data_rate.png "Operation hull for Data Rate")
 
-From the operation hull it's clear there's some non-linear relationship between FEC/PLR/DataRate, but basically it ranges from 2K to 2.5K packets/second before the code loses effectiveness.
+From the operation hull it's clear there's some non-linear relationship between FEC/PLR/DataRate, but basically it ranges from 2K to 2.5K packets/second before the code starts failing.
 
 For faster streams, using Siamese FEC is recommended:
 https://github.com/catid/siamese/
@@ -74,6 +71,10 @@ Compared to Random Linear Codes, the decoding 2+ losses is 2x more likely
 (0.2% measured failure rate versus 0.4% for RLC).
 
 Encoding/decoding is a bit faster than RLC thanks to the Cauchy matrix structure.
+
+#### Future work:
+
+The limit on data rate (< 2000 packets/second) and the CPU overhead required can be alleviated by using a more complicated matrix structure like the one I developed for Siamese.
 
 #### Streaming versus Generational Block Codec
 
@@ -96,7 +97,7 @@ https://github.com/catid/CauchyCaterpillar/blob/master/docs/ErasureCodesInSoftwa
 
 #### Credits
 
-I posted about this type of erasure code years ago on my blog, but never finished the project.  Recently Nicolas SAID sent me a paper from Dr. Martin Reisslein from ASU that explores a similar idea ( http://mre.faculty.asu.edu/CRLNC.pdf ).  Based on the success of that work I decided to put my own spin on it and release here.  Hope others find it useful!
+I posted about this type of erasure code years ago on my blog, but never finished the project.  Recently Nicolas SAID sent me a paper from Dr. Martin Reisslein that explores a similar idea ( http://mre.faculty.asu.edu/CRLNC.pdf ).  Based on the success of that work I decided to put my own spin on it and release here.  I hope others find it useful!
 
 Software by Christopher A. Taylor <mrcatid@gmail.com>
 
