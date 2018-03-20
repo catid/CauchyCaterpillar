@@ -211,7 +211,7 @@ typedef struct CCatSettings_t
     unsigned WindowMsec CCAT_CPP( = 100 );
 
     /// Application context pointer provided to callbacks
-    void* AppContextPtr CCAT_CPP( = nullptr );
+    CCatAppContext AppContextPtr CCAT_CPP( = nullptr );
 
     /**
         OnRecoveredData()
@@ -223,9 +223,9 @@ typedef struct CCatSettings_t
 
         It is provided the AppContextPtr in the settings.
     */
-    void(*OnRecoveredData)(
-        CCatOriginal original, /// Recovered original data
-        void* context          ///< AppContextPtr
+    void (*OnRecoveredData)(
+        CCatOriginal original, ///< Recovered original data
+        CCatAppContext context ///< AppContextPtr
         ) CCAT_CPP( = nullptr );
 } CCatSettings;
 
