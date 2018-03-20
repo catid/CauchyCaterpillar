@@ -1,6 +1,6 @@
 /** \file
     \brief Strike Register
-    \copyright Copyright (c) 2017 Christopher A. Taylor.  All rights reserved.
+    \copyright Copyright (c) 2017-2018 Christopher A. Taylor.  All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions are met:
@@ -143,21 +143,7 @@ void StrikeRegister::Accept(Counter64 sequence)
 Counter64 StrikeRegister::Expand(uint64_t partial, unsigned bytes) const
 {
     SECURITY_DEBUG_ASSERT(bytes > 0 && bytes < 8);
-
-    switch (bytes)
-    {
-    case 1: return Counter64::ExpandFromTruncated(LargestSequence, Counter8((uint8_t)partial));
-    case 2: return Counter64::ExpandFromTruncated(LargestSequence, Counter16((uint16_t)partial));
-    case 3: return Counter64::ExpandFromTruncated(LargestSequence, Counter24((uint32_t)partial));
-    case 4: return Counter64::ExpandFromTruncated(LargestSequence, Counter32((uint32_t)partial));
-    case 5: return Counter64::ExpandFromTruncated(LargestSequence, Counter40(partial));
-    case 6: return Counter64::ExpandFromTruncated(LargestSequence, Counter48(partial));
-    case 7: return Counter64::ExpandFromTruncated(LargestSequence, Counter56(partial));
-    default:
-        break;
-    }
-
-    return 0;
+    return CounterExpand(LargestSequence.ToUnsigned(), partial, bytes);
 }
 
 

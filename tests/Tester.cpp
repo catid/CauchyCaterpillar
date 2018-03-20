@@ -315,7 +315,7 @@ bool GetMinimumResult(
             for (unsigned i = 0; i < kParallelRuns; ++i) {
                 eloss.Update(Runs[i].GetEffLoss());
                 count.Update(Runs[i].GetResetPacketCounter());
-                fecsent.Update(Runs[i].FECSent);
+                fecsent.Update((unsigned)Runs[i].FECSent);
             }
 
 #if 0
@@ -326,7 +326,7 @@ bool GetMinimumResult(
             Logger.Info(Runs[0].Sequence, ": ", fecsent.minimum, " / ", fecsent.Average(), " / ", fecsent.maximum);
             Logger.Info(Runs[0].Sequence, ": ", count.minimum, " / ", count.Average(), " / ", count.maximum);
 #endif
-            results.PacketsPerSecond = count.Average() / (float)durationSeconds;
+            results.PacketsPerSecond = (unsigned)(count.Average() / (float)durationSeconds);
             results.MinimumEffectiveLoss = eloss.minimum;
             results.AverageEffectiveLoss = eloss.Average();
             results.MaximumEffectiveLoss = eloss.maximum;
@@ -384,12 +384,12 @@ int main()
 
     for (unsigned speedMult = 1; speedMult < 10; ++speedMult)
     {
-        for (float plr = 0.01; plr < 0.1; plr += 0.005)
+        for (float plr = 0.01f; plr < 0.1f; plr += 0.005f)
         {
             m_TestFailed = false;
 
 #pragma omp parallel for
-            for (int i = 0; i < 20 * 2; ++i)
+            for (int i = 20 * 2; i >= 0; --i)
             //for (float fec = 0.01; fec < 0.2; fec += 0.005)
             //const float fec = 0.01f;
             {

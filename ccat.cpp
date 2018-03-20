@@ -29,8 +29,7 @@
 
 #include "ccat.h"
 #include "CCatCodec.h"
-
-#include <new>
+#include <new> // std::nothrow
 
 namespace ccat {
 
@@ -46,22 +45,27 @@ CCAT_EXPORT CCatResult ccat_create(
     CCatCodec* codecOut
 )
 {
-    if (!settings || !codecOut)
+    if (!settings || !codecOut) {
         return CCat_InvalidInput;
+    }
+
     *codecOut = nullptr;
 
     const int gf256Result = gf256_init();
-    if (gf256Result != 0)
+    if (gf256Result != 0) {
         return CCat_Error;
+    }
 
     // Allocate aligned object
     Codec* codec = new (std::nothrow) Codec;
-    if (!codec)
+    if (!codec) {
         return CCat_OOM;
+    }
 
     const CCatResult initResult = codec->Create(*settings);
-    if (initResult != CCat_Success)
+    if (initResult != CCat_Success) {
         return initResult;
+    }
 
     *codecOut = reinterpret_cast<CCatCodec>( codec );
     return CCat_Success;
@@ -73,8 +77,10 @@ CCAT_EXPORT CCatResult ccat_encode_original(
 )
 {
     Codec* session = reinterpret_cast<Codec*>(codec);
-    if (!session)
+    if (!session) {
         return CCat_InvalidInput;
+    }
+
     return session->EncodeOriginal(*original);
 }
 
@@ -84,8 +90,10 @@ CCAT_EXPORT CCatResult ccat_encode_recovery(
 )
 {
     Codec* session = reinterpret_cast<Codec*>(codec);
-    if (!session)
+    if (!session) {
         return CCat_InvalidInput;
+    }
+
     return session->EncodeRecovery(*recoveryOut);
 }
 
@@ -95,8 +103,10 @@ CCAT_EXPORT CCatResult ccat_decode_original(
 )
 {
     Codec* session = reinterpret_cast<Codec*>(codec);
-    if (!session)
+    if (!session) {
         return CCat_InvalidInput;
+    }
+
     return session->DecodeOriginal(*original);
 }
 
@@ -106,13 +116,17 @@ CCAT_EXPORT CCatResult ccat_decode_recovery(
 )
 {
     Codec* session = reinterpret_cast<Codec*>(codec);
-    if (!session)
+    if (!session) {
         return CCat_InvalidInput;
+    }
+
     CCatResult result = session->DecodeRecovery(*recovery);
+
     if (result == CCat_NeedsMoreData) {
         // If we need more data, just return a success code to simplify the API.
         return CCat_Success;
     }
+
     return result;
 }
 
@@ -121,8 +135,9 @@ CCAT_EXPORT CCatResult ccat_destroy(
 )
 {
     Codec* session = reinterpret_cast<Codec*>(codec);
-    if (!session)
+    if (!session) {
         return CCat_InvalidInput;
+    }
 
     delete session;
 

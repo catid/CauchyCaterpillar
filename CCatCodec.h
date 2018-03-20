@@ -1,5 +1,5 @@
 /** \file
-    \brief Cauchy Caterpillar : Codec
+    \brief Cauchy Caterpillar : Codec Implementation
     \copyright Copyright (c) 2018 Christopher A. Taylor.  All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -38,30 +38,6 @@
 #include <string.h> // memcpy
 #include <new> // std::nothrow
 
-
-//------------------------------------------------------------------------------
-// Portability macros
-
-// Compiler-specific debug break
-#if defined(_DEBUG) || defined(DEBUG)
-#define CCAT_DEBUG
-#ifdef _WIN32
-#define CCAT_DEBUG_BREAK() __debugbreak()
-#else
-#define CCAT_DEBUG_BREAK() __builtin_trap()
-#endif
-#define CCAT_DEBUG_ASSERT(cond) { if (!(cond)) { CCAT_DEBUG_BREAK(); } }
-#else
-#define CCAT_DEBUG_BREAK() do {} while (false);
-#define CCAT_DEBUG_ASSERT(cond) do {} while (false);
-#endif
-
-// Compiler-specific force inline keyword
-#ifdef _MSC_VER
-#define CCAT_FORCE_INLINE inline __forceinline
-#else
-#define CCAT_FORCE_INLINE inline __attribute__((always_inline))
-#endif
 
 namespace ccat {
 
@@ -124,7 +100,7 @@ uint64_t GetTimeMsec();
 //------------------------------------------------------------------------------
 // POD Serialization
 
-CCAT_FORCE_INLINE uint16_t ReadU16_LE(const uint8_t* data)
+PKTALLOC_FORCE_INLINE uint16_t ReadU16_LE(const uint8_t* data)
 {
 #ifdef GF256_ALIGNED_ACCESSES
     return ((uint16_t)data[1] << 8) | data[0];
@@ -133,7 +109,7 @@ CCAT_FORCE_INLINE uint16_t ReadU16_LE(const uint8_t* data)
 #endif
 }
 
-CCAT_FORCE_INLINE void WriteU16_LE(uint8_t* data, uint16_t value)
+PKTALLOC_FORCE_INLINE void WriteU16_LE(uint8_t* data, uint16_t value)
 {
 #ifdef GF256_ALIGNED_ACCESSES
     data[1] = (uint8_t)(value >> 8);
@@ -178,13 +154,13 @@ public:
         pktalloc::Realloc behavior);
 
     /// Get current size (initially 0)
-    CCAT_FORCE_INLINE unsigned GetSize() const
+    PKTALLOC_FORCE_INLINE unsigned GetSize() const
     {
         return Size;
     }
 
     /// Return a pointer to an element
-    CCAT_FORCE_INLINE uint8_t* GetPtr(int index = 0) const
+    PKTALLOC_FORCE_INLINE uint8_t* GetPtr(int index = 0) const
     {
         return DataPtr + index;
     }
@@ -278,9 +254,9 @@ static GF256_FORCE_INLINE uint8_t GetMatrixElement(
 {
     const uint8_t x_i = recoveryRow;
     const uint8_t y_j = originalColumn + (uint8_t)kMatrixRowCount;
-    CCAT_DEBUG_ASSERT(x_i < y_j);
+    PKTALLOC_DEBUG_ASSERT(x_i < y_j);
     const uint8_t result = gf256_div(y_j, gf256_add(x_i, y_j));
-    CCAT_DEBUG_ASSERT(result != 0);
+    PKTALLOC_DEBUG_ASSERT(result != 0);
     return result;
 }
 
@@ -415,7 +391,7 @@ public:
     CCatResult DecodeOriginal(const CCatOriginal& original);
     CCatResult DecodeRecovery(const CCatRecovery& recovery);
 
-    CCAT_FORCE_INLINE Decoder()
+    PKTALLOC_FORCE_INLINE Decoder()
     {
         // All packets are lost initially
         Lost.SetAll();
@@ -533,10 +509,10 @@ private:
 
     /// Look up packet at a given 0-based element.
     /// Applies Rotation to the ring buffer to arrive at the actual location.
-    CCAT_FORCE_INLINE OriginalPacket* GetPacket(unsigned element)
+    PKTALLOC_FORCE_INLINE OriginalPacket* GetPacket(unsigned element)
     {
-        CCAT_DEBUG_ASSERT(element < kDecoderWindowSize);
-        CCAT_DEBUG_ASSERT(PacketsRotation < kDecoderWindowSize);
+        PKTALLOC_DEBUG_ASSERT(element < kDecoderWindowSize);
+        PKTALLOC_DEBUG_ASSERT(PacketsRotation < kDecoderWindowSize);
 
         // Increment element by rotation modulo window size
         element += PacketsRotation;
@@ -552,12 +528,12 @@ private:
     /// Insert recovery packet into sorted list
     CCatResult StoreRecovery(const CCatRecovery& recovery);
 
-    CCAT_FORCE_INLINE unsigned GetLostInRange(
+    PKTALLOC_FORCE_INLINE unsigned GetLostInRange(
         Counter64 sequenceStart,
         Counter64 sequenceEnd)
     {
-        CCAT_DEBUG_ASSERT(sequenceStart >= SequenceBase);
-        CCAT_DEBUG_ASSERT(sequenceEnd <= SequenceEnd);
+        PKTALLOC_DEBUG_ASSERT(sequenceStart >= SequenceBase);
+        PKTALLOC_DEBUG_ASSERT(sequenceEnd <= SequenceEnd);
         const unsigned start = (unsigned)(sequenceStart - SequenceBase).ToUnsigned();
         const unsigned end = (unsigned)(sequenceEnd - SequenceBase).ToUnsigned();
         return Lost.RangePopcount(start, end);

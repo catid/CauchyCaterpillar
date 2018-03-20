@@ -1,5 +1,5 @@
 /** \file
-    \brief Cauchy Caterpillar : Codec
+    \brief Cauchy Caterpillar : Codec Implementation
     \copyright Copyright (c) 2018 Christopher A. Taylor.  All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -56,7 +56,7 @@ bool AlignedLightVector::Resize(
     unsigned elements,
     pktalloc::Realloc behavior)
 {
-    CCAT_DEBUG_ASSERT(Size <= Allocated);
+    PKTALLOC_DEBUG_ASSERT(Size <= Allocated);
 
     if (elements > Allocated)
     {
@@ -82,13 +82,14 @@ static double PerfFrequencyInverseMsec = 0.;
 static void InitPerfFrequencyInverse()
 {
     LARGE_INTEGER freq = {};
-    if (!::QueryPerformanceFrequency(&freq) || freq.QuadPart == 0)
+    if (!::QueryPerformanceFrequency(&freq) || freq.QuadPart == 0) {
         return;
+    }
     const double invFreq = 1. / (double)freq.QuadPart;
     PerfFrequencyInverseUsec = 1000000. * invFreq;
     PerfFrequencyInverseMsec = 1000. * invFreq;
-    CCAT_DEBUG_ASSERT(PerfFrequencyInverseUsec > 0.);
-    CCAT_DEBUG_ASSERT(PerfFrequencyInverseMsec > 0.);
+    PKTALLOC_DEBUG_ASSERT(PerfFrequencyInverseUsec > 0.);
+    PKTALLOC_DEBUG_ASSERT(PerfFrequencyInverseMsec > 0.);
 }
 #elif __MACH__
 static bool m_clock_serv_init = false;
@@ -105,14 +106,17 @@ uint64_t GetTimeUsec()
 {
 #ifdef _WIN32
     LARGE_INTEGER timeStamp = {};
-    if (!::QueryPerformanceCounter(&timeStamp))
+    if (!::QueryPerformanceCounter(&timeStamp)) {
         return 0;
-    if (PerfFrequencyInverseUsec == 0.)
+    }
+    if (PerfFrequencyInverseUsec == 0.) {
         InitPerfFrequencyInverse();
+    }
     return (uint64_t)(PerfFrequencyInverseUsec * timeStamp.QuadPart);
 #elif __MACH__
-    if (!m_clock_serv_init)
+    if (!m_clock_serv_init) {
         InitClockServ();
+    }
 
     mach_timespec_t tv;
     clock_get_time(m_clock_serv, &tv);
@@ -129,10 +133,12 @@ uint64_t GetTimeMsec()
 {
 #ifdef _WIN32
     LARGE_INTEGER timeStamp = {};
-    if (!::QueryPerformanceCounter(&timeStamp))
+    if (!::QueryPerformanceCounter(&timeStamp)) {
         return 0;
-    if (PerfFrequencyInverseMsec == 0.)
+    }
+    if (PerfFrequencyInverseMsec == 0.) {
         InitPerfFrequencyInverse();
+    }
     return (uint64_t)(PerfFrequencyInverseMsec * timeStamp.QuadPart);
 #else
     // TBD: Optimize this?
@@ -152,15 +158,19 @@ CCatResult Codec::Create(const CCatSettings& settings)
     Decoder::SettingsPtr = &Settings;
     Decoder::AllocPtr = &Alloc;
 
-    if (Settings.WindowPackets < kMinEncoderWindowSize)
+    if (Settings.WindowPackets < kMinEncoderWindowSize) {
         Settings.WindowPackets = kMinEncoderWindowSize;
-    if (Settings.WindowPackets > kMaxEncoderWindowSize)
+    }
+    if (Settings.WindowPackets > kMaxEncoderWindowSize) {
         Settings.WindowPackets = kMaxEncoderWindowSize;
+    }
 
-    if (Settings.WindowMsec < kMinWindowMsec)
+    if (Settings.WindowMsec < kMinWindowMsec) {
         Settings.WindowMsec = kMinWindowMsec;
-    if (Settings.WindowMsec > kMaxWindowMsec)
+    }
+    if (Settings.WindowMsec > kMaxWindowMsec) {
         Settings.WindowMsec = kMaxWindowMsec;
+    }
 
     return CCat_Success;
 }
@@ -177,22 +187,24 @@ CCatResult Encoder::EncodeOriginal(const CCatOriginal& original)
         original.Bytes > kMaxPacketSize ||
         NextSequence != original.SequenceNumber)
     {
-        CCAT_DEBUG_BREAK();
+        PKTALLOC_DEBUG_BREAK();
         return CCat_InvalidInput;
     }
 
     // Pick window element
     EncoderWindowElement* element = &Window[NextIndex];
-    if (++NextIndex >= kMaxEncoderWindowSize)
+    if (++NextIndex >= kMaxEncoderWindowSize) {
         NextIndex = 0;
+    }
 
     // Resize the target window element 
     const bool resizeResult = element->Data.Resize(
         AllocPtr,
         kEncodeOverhead + original.Bytes,
         pktalloc::Realloc::Uninitialized);
-    if (!resizeResult)
+    if (!resizeResult) {
         return CCat_OOM;
+    }
 
     // Write element data
     uint8_t* data = element->Data.GetPtr();
@@ -208,12 +220,14 @@ CCatResult Encoder::EncodeOriginal(const CCatOriginal& original)
     element->SendUsec = nowUsec;
 
     // Keep track of count of packets stored
-    if (Count < kMaxEncoderWindowSize)
+    if (Count < kMaxEncoderWindowSize) {
         ++Count;
+    }
 
     // Update next column to assign
-    if (++NextColumn >= kMatrixColumnCount)
+    if (++NextColumn >= kMatrixColumnCount) {
         NextColumn = 0;
+    }
 
     // Update next sequence number
     ++NextSequence;
@@ -249,31 +263,37 @@ CCatResult Encoder::EncodeRecovery(CCatRecovery& recoveryOut)
     unsigned count = 0;
     while (count < Count)
     {
-        unsigned prevIndex = index;
         // Iterate backwards
-        if (prevIndex == 0)
+        unsigned prevIndex = index;
+        if (prevIndex == 0) {
             prevIndex = kMaxEncoderWindowSize;
+        }
         prevIndex--;
 
-        // If packet is too old:
         EncoderWindowElement* element = &Window[prevIndex];
         const uint64_t deltaUsec = (uint64_t)(LastOriginalSendUsec - element->SendUsec).ToUnsigned();
-        CCAT_DEBUG_ASSERT(deltaUsec >= 0);
-        if (deltaUsec > limitUsec)
+        PKTALLOC_DEBUG_ASSERT(deltaUsec >= 0);
+
+        // If packet is too old:
+        if (deltaUsec > limitUsec) {
             break; // Stop here
+        }
 
         // Include this packet
         index = prevIndex;
-        if (column == 0)
+        if (column == 0) {
             column = kMatrixColumnCount;
+        }
         column--;
         ++count;
-        if (maxBytes < element->Data.GetSize())
+        if (maxBytes < element->Data.GetSize()) {
             maxBytes = element->Data.GetSize();
+        }
 
         // If window filled up:
-        if (count >= windowSize)
+        if (count >= windowSize) {
             break; // Stop here
+        }
     }
 
     // If window is empty:
@@ -290,7 +310,7 @@ CCatResult Encoder::EncodeRecovery(CCatRecovery& recoveryOut)
 
     // Step (2): Write recovery packet
 
-    CCAT_DEBUG_ASSERT(NextSequence >= count);
+    PKTALLOC_DEBUG_ASSERT(NextSequence >= count);
     const Counter64 sequenceStart = NextSequence - count;
 
     // Handle 1x1 case by referencing the original data
@@ -307,32 +327,41 @@ CCatResult Encoder::EncodeRecovery(CCatRecovery& recoveryOut)
     }
 
     // Make space for the largest packet
-    CCAT_DEBUG_ASSERT(maxBytes > 0);
+    PKTALLOC_DEBUG_ASSERT(maxBytes > 0);
     RecoveryData.Resize(AllocPtr, maxBytes, pktalloc::Realloc::Uninitialized);
     uint8_t* output = RecoveryData.GetPtr();
 
-#if 0
-    // Check if this is an xor party row
+    // This will reduce recovery rates but improves speed
+#ifdef CCAT_MORE_PARITY_ROWS
+
+    // Check if this is an xor parity row
     const bool isParityRow = (sequenceStart >= NextParitySequence);
 
     // Write metadata
     uint8_t row = 0;
-    if (isParityRow)
+    if (isParityRow) {
         NextParitySequence = sequenceStart + count;
+    }
     else
     {
         row = NextRow;
-        if (++NextRow >= kMatrixRowCount)
+        if (++NextRow >= kMatrixRowCount) {
             NextRow = 1;
+        }
     }
-#else
+
+#else // CCAT_MORE_PARITY_ROWS
+
     // Write metadata
     uint8_t row = 0;
     row = NextRow;
-    if (++NextRow >= kMatrixRowCount)
+    if (++NextRow >= kMatrixRowCount) {
         NextRow = 0;
+    }
     bool isParityRow = (row == 0);
-#endif
+
+#endif // CCAT_MORE_PARITY_ROWS
+
     recoveryOut.Data = output;
     recoveryOut.Count = count;
     recoveryOut.SequenceStart = sequenceStart.ToUnsigned();
@@ -342,42 +371,50 @@ CCatResult Encoder::EncodeRecovery(CCatRecovery& recoveryOut)
     // Unroll first column:
     {
         EncoderWindowElement* element = &Window[index];
-        CCAT_DEBUG_ASSERT(element->Data.GetSize() > 2);
+        PKTALLOC_DEBUG_ASSERT(element->Data.GetSize() > 2);
         const uint8_t* data = element->Data.GetPtr();
         const unsigned dataBytes = element->Data.GetSize();
 
         // Write column
-        if (isParityRow)
+        if (isParityRow) {
             memcpy(output, data, dataBytes);
+        }
         else
         {
             const uint8_t y = GetMatrixElement(row, column);
+
             gf256_mul_mem(output, data, y, dataBytes);
         }
 
         // Pad with zeros
-        CCAT_DEBUG_ASSERT(maxBytes >= dataBytes);
+        PKTALLOC_DEBUG_ASSERT(maxBytes >= dataBytes);
         memset(output + dataBytes, 0, maxBytes - dataBytes);
     }
 
     // For each remaining column:
     while (--count > 0)
     {
-        if (++index >= kMaxEncoderWindowSize)
+        if (++index >= kMaxEncoderWindowSize) {
             index = 0;
+        }
+
         EncoderWindowElement* element = &Window[index];
-        CCAT_DEBUG_ASSERT(element->Data.GetSize() > 2);
+        PKTALLOC_DEBUG_ASSERT(element->Data.GetSize() > 2);
         const uint8_t* data = element->Data.GetPtr();
         const unsigned dataBytes = element->Data.GetSize();
 
         // Write column
-        if (isParityRow)
+        if (isParityRow) {
             gf256_add_mem(output, data, dataBytes);
+        }
         else
         {
-            if (++column >= kMatrixColumnCount)
+            if (++column >= kMatrixColumnCount) {
                 column = 0;
+            }
+
             const uint8_t y = GetMatrixElement(row, column);
+
             gf256_muladd_mem(output, y, data, dataBytes);
         }
     }
@@ -409,7 +446,7 @@ CCatResult Decoder::DecodeRecovery(const CCatRecovery& recovery)
 
     // Check how many lost packets are covered by this recovery packet
     const Counter64 sequenceStart = recovery.SequenceStart;
-    CCAT_DEBUG_ASSERT(sequenceStart >= SequenceBase); // Should never happen
+    PKTALLOC_DEBUG_ASSERT(sequenceStart >= SequenceBase); // Should never happen
     const Counter64 sequenceEnd = recovery.SequenceStart + recovery.Count;
     const unsigned lost = GetLostInRange(sequenceStart, sequenceEnd);
 
@@ -519,6 +556,7 @@ Decoder::Expand Decoder::ExpandWindow(Counter64 sequenceStart, unsigned count)
         // Reset packet ring buffer rotation back to front
         PacketsRotation = 0;
 
+        // This does not seem to have a huge impact on overhead
 #ifdef CCAT_FREE_UNUSED_PACKETS
         for (unsigned i = 0; i < kDecoderWindowSize; ++i)
         {
@@ -537,18 +575,20 @@ Decoder::Expand Decoder::ExpandWindow(Counter64 sequenceStart, unsigned count)
     // Round up the minimum bit shift required to make room to the next word
     const unsigned minBitShift = (unsigned)span - kDecoderWindowSize;
     const unsigned roundWordShift = (minBitShift + 63) / 64;
-    CCAT_DEBUG_ASSERT(roundWordShift >= 1 && roundWordShift < Lost.kWords);
+    PKTALLOC_DEBUG_ASSERT(roundWordShift >= 1 && roundWordShift < Lost.kWords);
 
     // Shift words left to make room for all the new elements
-    for (unsigned i = roundWordShift; i < Lost.kWords; ++i)
+    for (unsigned i = roundWordShift; i < Lost.kWords; ++i) {
         Lost.Words[i - roundWordShift] = Lost.Words[i];
+    }
 
     // Mark all new elements as lost
-    for (unsigned i = Lost.kWords - roundWordShift; i < Lost.kWords; ++i)
+    for (unsigned i = Lost.kWords - roundWordShift; i < Lost.kWords; ++i) {
         Lost.Words[i] = (uint64_t)~((int64_t)0); // All lost
+    }
 
     const unsigned lostBits = roundWordShift * 64;
-    CCAT_DEBUG_ASSERT(lostBits < kDecoderWindowSize);
+    PKTALLOC_DEBUG_ASSERT(lostBits < kDecoderWindowSize);
 
 #ifdef CCAT_FREE_UNUSED_PACKETS
     unsigned element = PacketsRotation;
@@ -557,19 +597,21 @@ Decoder::Expand Decoder::ExpandWindow(Counter64 sequenceStart, unsigned count)
         AllocPtr->Free(Packets[element].Data);
         Packets[element].Data = nullptr;
         ++element;
-        if (element >= kDecoderWindowSize)
+        if (element >= kDecoderWindowSize) {
             element -= kDecoderWindowSize;
+        }
     }
 #endif // CCAT_FREE_UNUSED_PACKETS
 
     SequenceBase += lostBits;
-    CCAT_DEBUG_ASSERT(SequenceEnd - SequenceBase <= kDecoderWindowSize);
-    CCAT_DEBUG_ASSERT(sequenceStart >= SequenceBase);
+    PKTALLOC_DEBUG_ASSERT(SequenceEnd - SequenceBase <= kDecoderWindowSize);
+    PKTALLOC_DEBUG_ASSERT(sequenceStart >= SequenceBase);
 
     // Increment packet rotation modulo the window size
     PacketsRotation += lostBits;
-    if (PacketsRotation >= kDecoderWindowSize)
+    if (PacketsRotation >= kDecoderWindowSize) {
         PacketsRotation -= kDecoderWindowSize;
+    }
 
     return Expand::Shifted;
 }
@@ -599,14 +641,16 @@ void Decoder::CleanupRecoveryList()
     for (RecoveryPacket* recovery = RecoveryFirst, *next; recovery; recovery = next)
     {
         // If we found a recovery packet that is entirely within the window:
-        if (recovery->SequenceStart >= sequenceBase) {
+        if (recovery->SequenceStart >= sequenceBase)
+        {
             // Set this as the new recovery list head,
             // as all remaining sorted rows will also be within the window.
             RecoveryFirst = recovery;
             recovery->Prev = nullptr;
 
-            CCAT_DEBUG_ASSERT(recovery->SequenceEnd <= SequenceEnd);
-            CCAT_DEBUG_ASSERT(RecoveryLast->SequenceEnd <= SequenceEnd);
+            PKTALLOC_DEBUG_ASSERT(recovery->SequenceEnd <= SequenceEnd);
+            PKTALLOC_DEBUG_ASSERT(RecoveryLast->SequenceEnd <= SequenceEnd);
+
             return;
         }
         next = recovery->Next;
@@ -625,7 +669,7 @@ CCatResult Decoder::StoreOriginal(const CCatOriginal& original)
 {
     const Counter64 sequence = original.SequenceNumber;
     const unsigned element = (unsigned)(sequence - SequenceBase).ToUnsigned();
-    CCAT_DEBUG_ASSERT(element < kDecoderWindowSize);
+    PKTALLOC_DEBUG_ASSERT(element < kDecoderWindowSize);
 
     // If this element was not lost:
     if (!Lost.Check(element))
@@ -634,6 +678,7 @@ CCatResult Decoder::StoreOriginal(const CCatOriginal& original)
         // then the original arrives later.
         return CCat_Success;
     }
+
     Lost.Clear(element);
 
     // Reallocate element memory
@@ -642,13 +687,16 @@ CCatResult Decoder::StoreOriginal(const CCatOriginal& original)
         packet->Data,
         2 + original.Bytes,
         pktalloc::Realloc::Uninitialized);
-    if (!packet->Data)
+
+    if (!packet->Data) {
         return CCat_OOM;
+    }
 
     // Copy original data here with length prepended
     WriteU16_LE(packet->Data, (uint16_t)(original.Bytes - 1));
     memcpy(packet->Data + 2, original.Data, original.Bytes);
     packet->Bytes = 2 + original.Bytes;
+
     return CCat_Success;
 }
 
@@ -656,17 +704,20 @@ CCatResult Decoder::StoreRecovery(const CCatRecovery& recovery)
 {
     // Allocate packet
     uint8_t* data = AllocPtr->Allocate(recovery.Bytes);
+
     if (!data) {
         return CCat_OOM;
     }
+
     RecoveryPacket* packet = AllocPtr->Construct<RecoveryPacket>();
+
     if (!packet) {
         AllocPtr->Free(data);
         return CCat_OOM;
     }
 
     const Counter64 sequenceStart = recovery.SequenceStart;
-    CCAT_DEBUG_ASSERT(sequenceStart >= SequenceBase); // Should never happen
+    PKTALLOC_DEBUG_ASSERT(sequenceStart >= SequenceBase); // Should never happen
     const Counter64 sequenceEnd = recovery.SequenceStart + recovery.Count;
 
     // Write recovery data
@@ -677,14 +728,14 @@ CCatResult Decoder::StoreRecovery(const CCatRecovery& recovery)
     packet->SequenceEnd = sequenceEnd;
     packet->MatrixRow = recovery.RecoveryRow;
 
-    // Find insertion point
     RecoveryPacket* prev = RecoveryLast;
     RecoveryPacket* next = nullptr;
+
+    // Find insertion point
     while (prev)
     {
         // If packet should be inserted between prev, next
-        if (prev->SequenceEnd < sequenceEnd)
-        {
+        if (prev->SequenceEnd < sequenceEnd) {
             break;
         }
         else if (prev->SequenceEnd == sequenceEnd &&
@@ -702,28 +753,35 @@ CCatResult Decoder::StoreRecovery(const CCatRecovery& recovery)
     {
         if (sequenceStart > next->SequenceStart || sequenceEnd > next->SequenceEnd)
         {
-            CCAT_DEBUG_BREAK(); // Invalid input
+            PKTALLOC_DEBUG_BREAK(); // Invalid input
             AllocPtr->Free(data);
             AllocPtr->Destruct(packet);
+
             return CCat_InvalidInput;
         }
+
         next->Prev = packet;
     }
-    else
+    else {
         RecoveryLast = packet;
+    }
+
     if (prev)
     {
         if (prev->SequenceStart > sequenceStart || prev->SequenceEnd > sequenceEnd)
         {
-            CCAT_DEBUG_BREAK(); // Invalid input
+            PKTALLOC_DEBUG_BREAK(); // Invalid input
             AllocPtr->Free(data);
             AllocPtr->Destruct(packet);
             return CCat_InvalidInput;
         }
+
         prev->Next = packet;
     }
-    else
+    else {
         RecoveryFirst = packet;
+    }
+
     packet->Next = next;
     packet->Prev = prev;
 
@@ -900,15 +958,15 @@ CCatResult Decoder::SolveLostOne(const CCatRecovery& recovery)
     // Calculate element range
     const Counter64 sequenceStart = recovery.SequenceStart;
     const Counter64 sequenceEnd = recovery.SequenceStart + recovery.Count;
-    CCAT_DEBUG_ASSERT(sequenceStart >= SequenceBase);
+    PKTALLOC_DEBUG_ASSERT(sequenceStart >= SequenceBase);
     const unsigned elementStart = (unsigned)(sequenceStart - SequenceBase).ToUnsigned();
     const unsigned elementEnd = (unsigned)(sequenceEnd - SequenceBase).ToUnsigned();
-    CCAT_DEBUG_ASSERT(elementEnd <= kDecoderWindowSize);
+    PKTALLOC_DEBUG_ASSERT(elementEnd <= kDecoderWindowSize);
 
     // Find lost element
     const unsigned lostElement = Lost.FindFirstSet(elementStart, elementEnd);
     const Counter64 lostSequence = SequenceBase + lostElement;
-    CCAT_DEBUG_ASSERT(lostElement < kDecoderWindowSize);
+    PKTALLOC_DEBUG_ASSERT(lostElement < kDecoderWindowSize);
     OriginalPacket* lostPacket = GetPacket(lostElement);
 
     // Reallocate data
@@ -918,15 +976,19 @@ CCatResult Decoder::SolveLostOne(const CCatRecovery& recovery)
         recoveryBytes,
         pktalloc::Realloc::Uninitialized);
     lostPacket->Data = data;
-    if (!data)
+
+    if (!data) {
         return CCat_OOM;
+    }
+
     memcpy(data, recovery.Data, recoveryBytes);
 
     // Calculate Packets[] element
     unsigned element = elementStart;
     element += PacketsRotation;
-    if (element >= kDecoderWindowSize)
+    if (element >= kDecoderWindowSize) {
         element -= kDecoderWindowSize;
+    }
 
     // Calculate matrix column for loss
     unsigned column = (unsigned)(sequenceStart.ToUnsigned() % kMatrixColumnCount);
@@ -937,24 +999,30 @@ CCatResult Decoder::SolveLostOne(const CCatRecovery& recovery)
     for (Counter64 sequence = sequenceStart; sequence < sequenceEnd; ++sequence)
     {
         // If this is the lost sequence:
-        if (sequence == lostSequence)
+        if (sequence == lostSequence) {
             lostColumn = (uint8_t)column;
+        }
         else
         {
             // Eliminate this original packet
-            CCAT_DEBUG_ASSERT(element < kDecoderWindowSize);
+            PKTALLOC_DEBUG_ASSERT(element < kDecoderWindowSize);
             OriginalPacket* original = &Packets[element];
             const uint8_t* originalData = original->Data;
             const unsigned originalBytes = original->Bytes;
-            CCAT_DEBUG_ASSERT(original->Bytes >= 2);
+            PKTALLOC_DEBUG_ASSERT(original->Bytes >= 2);
+
             if (!originalData || originalBytes > recoveryBytes) {
-                CCAT_DEBUG_BREAK(); // Invalid input
+                PKTALLOC_DEBUG_BREAK(); // Invalid input
                 return CCat_InvalidInput;
             }
-            if (row == 0)
+
+            if (row == 0) {
                 gf256_add_mem(data, originalData, originalBytes);
-            else {
+            }
+            else
+            {
                 const uint8_t y = GetMatrixElement(row, (uint8_t)column);
+
                 gf256_muladd_mem(data, y, originalData, originalBytes);
             }
         }
@@ -974,6 +1042,7 @@ CCatResult Decoder::SolveLostOne(const CCatRecovery& recovery)
     if (row != 0)
     {
         const uint8_t y_inv = gf256_inv(GetMatrixElement(row, lostColumn));
+
         gf256_mul_mem(data, data, y_inv, recovery.Bytes);
     }
 
@@ -981,9 +1050,10 @@ CCatResult Decoder::SolveLostOne(const CCatRecovery& recovery)
     const unsigned originalBytes = (unsigned)ReadU16_LE(data) + 1;
     if (originalBytes > recoveryBytes)
     {
-        CCAT_DEBUG_BREAK(); // Invalid input.  Probably passed the wrong sequence numbers in?
+        PKTALLOC_DEBUG_BREAK(); // Invalid input.  Probably passed the wrong sequence numbers in?
         return CCat_InvalidInput;
     }
+
     lostPacket->Bytes = 2 + originalBytes;
 
     // Mark this element as received
@@ -1006,8 +1076,9 @@ CCatResult Decoder::FindSolutionsContaining(const Counter64 sequence)
     if (!RecoveryLast) {
         return CCat_Success;
     }
-    CCAT_DEBUG_ASSERT(RecoveryFirst != nullptr);
-    CCAT_DEBUG_ASSERT(RecoveryFirst->SequenceStart <= sequence);
+
+    PKTALLOC_DEBUG_ASSERT(RecoveryFirst != nullptr);
+    PKTALLOC_DEBUG_ASSERT(RecoveryFirst->SequenceStart <= sequence);
 
     // Receiving originals out of order is rare, so apply some heuristics:
     // If there is a recovery packet that now references just one loss,
@@ -1018,16 +1089,18 @@ CCatResult Decoder::FindSolutionsContaining(const Counter64 sequence)
     for (RecoveryPacket* recovery = RecoveryLast; recovery; recovery = recovery->Prev)
     {
         // If this recovery packet cannot use it:
-        if (sequence >= recovery->SequenceEnd)
+        if (sequence >= recovery->SequenceEnd) {
             continue; // Try next
+        }
 
         // If this and remaining recovery packets do not contain it:
-        if (sequence < recovery->SequenceStart)
+        if (sequence < recovery->SequenceStart) {
             break; // Stop here
+        }
 
         // Find the number of lost in this recovery packet range
         const unsigned loss = GetLostInRange(recovery->SequenceStart, recovery->SequenceEnd);
-        CCAT_DEBUG_ASSERT(loss > 0 && loss <= kMatrixColumnCount);
+        PKTALLOC_DEBUG_ASSERT(loss > 0 && loss <= kMatrixColumnCount);
 
         // If there is only one loss:
         if (loss == 1) {
@@ -1059,7 +1132,7 @@ CCatResult Decoder::FindSolutions()
     unsigned fill = 1;
     unsigned loss = nextLoss;
     unsigned rightZeros = 0;
-    CCAT_DEBUG_ASSERT(loss >= fill);
+    PKTALLOC_DEBUG_ASSERT(loss >= fill);
 
     // If a solution is possible:
     if (loss == fill) {
@@ -1081,7 +1154,7 @@ CCatResult Decoder::FindSolutions()
 
         // Calculate overlapping loss count
         unsigned overlapLoss;
-        CCAT_DEBUG_ASSERT(prev->SequenceEnd <= next->SequenceEnd);
+        PKTALLOC_DEBUG_ASSERT(prev->SequenceEnd <= next->SequenceEnd);
         if (prev->SequenceEnd < next->SequenceEnd) {
             overlapLoss = GetLostInRange(nextSequenceStart, prev->SequenceEnd);
         }
@@ -1090,7 +1163,7 @@ CCatResult Decoder::FindSolutions()
         }
 
         // Accumulate the zeros on the right since this scan started
-        CCAT_DEBUG_ASSERT(nextLoss >= overlapLoss);
+        PKTALLOC_DEBUG_ASSERT(nextLoss >= overlapLoss);
         rightZeros += nextLoss - overlapLoss;
 
         // If the number of zeros on the right crosses the diagonal:
@@ -1110,10 +1183,11 @@ CCatResult Decoder::FindSolutions()
         // Calculate added losses
         unsigned addedLoss = 0;
         const Counter64 prevSequenceStart = prev->SequenceStart;
-        CCAT_DEBUG_ASSERT(prevSequenceStart <= nextSequenceStart);
-        if (prevSequenceStart < nextSequenceStart) {
+        PKTALLOC_DEBUG_ASSERT(prevSequenceStart <= nextSequenceStart);
+        if (prevSequenceStart < nextSequenceStart)
+        {
             nextLoss = GetLostInRange(prevSequenceStart, prev->SequenceEnd);
-            CCAT_DEBUG_ASSERT(nextLoss >= overlapLoss);
+            PKTALLOC_DEBUG_ASSERT(nextLoss >= overlapLoss);
             addedLoss = nextLoss - overlapLoss;
         }
         else {
@@ -1122,7 +1196,7 @@ CCatResult Decoder::FindSolutions()
 
         // Added one recovery row and some number of losses
         loss += addedLoss;
-        CCAT_DEBUG_ASSERT(loss >= fill);
+        PKTALLOC_DEBUG_ASSERT(loss >= fill);
 
         // If loss size exceeds the limits of the codec:
         if (loss > kMaxRecoveryColumns) {
@@ -1136,8 +1210,11 @@ CCatResult Decoder::FindSolutions()
             for (unsigned rowsAdded = fill; rowsAdded < kMaxRecoveryRows; ++rowsAdded)
             {
                 RecoveryPacket* additional = prev->Prev;
-                if (!additional || additional->SequenceStart != prevSequenceStart)
+
+                if (!additional || additional->SequenceStart != prevSequenceStart) {
                     break;
+                }
+
                 prev = additional;
             }
 
@@ -1155,7 +1232,7 @@ CCatResult Decoder::FindSolutions()
 
 CCatResult Decoder::Solve(RecoveryPacket* spanStart, RecoveryPacket* spanEnd)
 {
-    CCAT_DEBUG_ASSERT(spanStart != nullptr && spanEnd != nullptr);
+    PKTALLOC_DEBUG_ASSERT(spanStart != nullptr && spanEnd != nullptr);
 
     CCatResult result;
 
@@ -1193,7 +1270,8 @@ OnFail:
     ReleaseSpan(spanStart, spanEnd, result);
 
     // If any failures occurred:
-    if (result != CCat_Success) {
+    if (result != CCat_Success)
+    {
         ++LargeRecoveryFailures;
         return result;
     }
@@ -1207,42 +1285,45 @@ CCatResult Decoder::ArraysFromSpans(RecoveryPacket* spanStart, RecoveryPacket* s
     RowCount = 0;
     ColumnCount = 0;
 
-    // Convert recovery row span into an array and calculate SolutionBytes
     unsigned solutionBytes = 0;
     unsigned rowCount = 0;
     RecoveryPacket* recovery = spanStart;
+
+    // Convert recovery row span into an array and calculate SolutionBytes
     while (recovery)
     {
         // Incorporate this row into the array
-        CCAT_DEBUG_ASSERT(recovery->MatrixRow < kMatrixRowCount);
+        PKTALLOC_DEBUG_ASSERT(recovery->MatrixRow < kMatrixRowCount);
         CauchyRows[rowCount] = recovery->MatrixRow;
         RowInfo[rowCount].Recovery = recovery;
         ++rowCount;
-        CCAT_DEBUG_ASSERT(rowCount <= kMaxRecoveryRows);
+        PKTALLOC_DEBUG_ASSERT(rowCount <= kMaxRecoveryRows);
 
         // Update solution bytes
-        if (solutionBytes < recovery->Bytes)
+        if (solutionBytes < recovery->Bytes) {
             solutionBytes = recovery->Bytes;
+        }
 
-        if (spanEnd == recovery)
+        if (spanEnd == recovery) {
             break;
+        }
 
         recovery = recovery->Next;
-        CCAT_DEBUG_ASSERT(recovery);
+        PKTALLOC_DEBUG_ASSERT(recovery);
     }
-    CCAT_DEBUG_ASSERT(solutionBytes > 2);
+    PKTALLOC_DEBUG_ASSERT(solutionBytes > 2);
     SolutionBytes = solutionBytes;
-    CCAT_DEBUG_ASSERT(rowCount > 0);
+    PKTALLOC_DEBUG_ASSERT(rowCount > 0);
     RowCount = rowCount;
 
     // Store original columns
     const Counter64 sequenceStart = spanStart->SequenceStart;
     const Counter64 sequenceEnd = spanEnd->SequenceEnd;
-    CCAT_DEBUG_ASSERT(sequenceStart >= SequenceBase);
+    PKTALLOC_DEBUG_ASSERT(sequenceStart >= SequenceBase);
     const unsigned elementStart = (unsigned)(sequenceStart - SequenceBase).ToUnsigned();
     const unsigned elementEnd = (unsigned)(sequenceEnd - SequenceBase).ToUnsigned();
-    CCAT_DEBUG_ASSERT(elementStart < elementEnd);
-    CCAT_DEBUG_ASSERT(elementEnd <= kDecoderWindowSize);
+    PKTALLOC_DEBUG_ASSERT(elementStart < elementEnd);
+    PKTALLOC_DEBUG_ASSERT(elementEnd <= kDecoderWindowSize);
 
     // Calculate matrix column for loss
     unsigned columnStart = (unsigned)(sequenceStart.ToUnsigned() % kMatrixColumnCount);
@@ -1266,50 +1347,49 @@ CCatResult Decoder::ArraysFromSpans(RecoveryPacket* spanStart, RecoveryPacket* s
         element += PacketsRotation;
         if (element >= kDecoderWindowSize) {
             element -= kDecoderWindowSize;
-            CCAT_DEBUG_ASSERT(element < kDecoderWindowSize);
+            PKTALLOC_DEBUG_ASSERT(element < kDecoderWindowSize);
         }
 
         // Next window element
         unsigned column = columnStart + nextLoss - elementStart;
-        if (column >= kMatrixColumnCount) {
+        if (column >= kMatrixColumnCount)
+        {
             column -= kMatrixColumnCount;
+
             if (column >= kMatrixColumnCount) {
                 column -= kMatrixColumnCount;
-                CCAT_DEBUG_ASSERT(column < kMatrixColumnCount);
+                PKTALLOC_DEBUG_ASSERT(column < kMatrixColumnCount);
             }
         }
 
         // Map column to original data
         ColumnInfo[columnCount].OriginalPtr = &Packets[element];
         ColumnInfo[columnCount].Sequence = sequenceStart + nextLoss - elementStart;
-        CCAT_DEBUG_ASSERT(column < kMatrixColumnCount);
+        PKTALLOC_DEBUG_ASSERT(column < kMatrixColumnCount);
         CauchyColumns[columnCount] = (uint8_t)column;
         ++columnCount;
-        CCAT_DEBUG_ASSERT(columnCount <= kMaxRecoveryColumns);
+        PKTALLOC_DEBUG_ASSERT(columnCount <= kMaxRecoveryColumns);
 
         // Start searching from next element
         lossSearchStart = nextLoss + 1;
     }
-    CCAT_DEBUG_ASSERT(columnCount > 0);
+    PKTALLOC_DEBUG_ASSERT(columnCount > 0);
     ColumnCount = columnCount;
 
     // Sanity check the system state
-    if (rowCount < columnCount)
-    {
-        CCAT_DEBUG_BREAK(); // Should never happen
+    if (rowCount < columnCount) {
+        PKTALLOC_DEBUG_BREAK(); // Should never happen
         return CCat_Error;
     }
 
     // For each row:
-    for (unsigned i = 0; i < rowCount; ++i)
-    {
+    for (unsigned i = 0; i < rowCount; ++i) {
         // Initialize pivot rows assuming no row swaps
         PivotRowIndex[i] = (uint8_t)i;
     }
 
     // For each column:
-    for (unsigned i = 0; i < columnCount; ++i)
-    {
+    for (unsigned i = 0; i < columnCount; ++i) {
         // Clear diagonal data in case we fail
         DiagonalData[i] = nullptr;
     }
@@ -1332,8 +1412,11 @@ CCatResult Decoder::PlanSolution()
         AllocPtr,
         rowCount * columnCount,
         pktalloc::Realloc::Uninitialized);
-    if (!resizeResult)
+
+    if (!resizeResult) {
         return CCat_OOM;
+    }
+
     uint8_t* matrix = Matrix.GetPtr();
 
     // Uninitialized rows will contain zeros, which is used later in ExecuteSolutionPlan()
@@ -1353,8 +1436,8 @@ CCatResult Decoder::PlanSolution()
         RecoveryPacket* recovery = RowInfo[0].Recovery;
         const uint8_t generatorRow = CauchyRows[0];
 
-        CCAT_DEBUG_ASSERT(recovery->SequenceStart <= ColumnInfo[0].Sequence);
-        CCAT_DEBUG_ASSERT(recovery->SequenceEnd > ColumnInfo[0].Sequence);
+        PKTALLOC_DEBUG_ASSERT(recovery->SequenceStart <= ColumnInfo[0].Sequence);
+        PKTALLOC_DEBUG_ASSERT(recovery->SequenceEnd > ColumnInfo[0].Sequence);
         RowInfo[0].ColumnStart = 0;
 
         // Write element (0, 0)
@@ -1365,7 +1448,7 @@ CCatResult Decoder::PlanSolution()
         for (unsigned column = 1; column < columnCount; ++column)
         {
             const Counter64 columnSequence = ColumnInfo[column].Sequence;
-            CCAT_DEBUG_ASSERT(columnSequence > ColumnInfo[column - 1].Sequence);
+            PKTALLOC_DEBUG_ASSERT(columnSequence > ColumnInfo[column - 1].Sequence);
             if (columnSequence >= recovery->SequenceEnd)
             {
                 pivotColumnEnd = column;
@@ -1380,9 +1463,10 @@ CCatResult Decoder::PlanSolution()
         RowInfo[0].ColumnEnd = pivotColumnEnd;
     }
 
-    // Build remainder of matrix:
     uint8_t* elim_data = pivot_data;
     unsigned prevColumnStart = 0;
+
+    // Build remainder of matrix:
     for (unsigned row = 1; row < rowCount; ++row)
     {
         elim_data += columnCount;
@@ -1391,12 +1475,12 @@ CCatResult Decoder::PlanSolution()
         const Counter64 rowSequenceStart = recovery->SequenceStart;
         const uint8_t generatorRow = CauchyRows[row];
 
-#ifdef CCAT_DEBUG
+#ifdef PKTALLOC_DEBUG
         // Verify that this row does not start earlier than prior row
         for (unsigned column = 0; column < prevColumnStart; ++column)
         {
-            CCAT_DEBUG_ASSERT(column == 0 || ColumnInfo[column].Sequence > ColumnInfo[column - 1].Sequence);
-            CCAT_DEBUG_ASSERT(rowSequenceStart > ColumnInfo[column].Sequence);
+            PKTALLOC_DEBUG_ASSERT(column == 0 || ColumnInfo[column].Sequence > ColumnInfo[column - 1].Sequence);
+            PKTALLOC_DEBUG_ASSERT(rowSequenceStart > ColumnInfo[column].Sequence);
         }
 #endif
 
@@ -1405,15 +1489,18 @@ CCatResult Decoder::PlanSolution()
         for (unsigned column = prevColumnStart; column < columnCount; ++column)
         {
             const Counter64 columnSequence = ColumnInfo[column].Sequence;
-            CCAT_DEBUG_ASSERT(column == 0 || columnSequence > ColumnInfo[column - 1].Sequence);
+            PKTALLOC_DEBUG_ASSERT(column == 0 || columnSequence > ColumnInfo[column - 1].Sequence);
+
             if (rowSequenceStart <= columnSequence)
             {
                 columnStart = column;
                 break;
             }
-            CCAT_DEBUG_ASSERT(column < row); // Rows must contain the diagonal
+
+            PKTALLOC_DEBUG_ASSERT(column < row); // Rows must contain the diagonal
         }
-        CCAT_DEBUG_ASSERT(columnStart < columnCount);
+
+        PKTALLOC_DEBUG_ASSERT(columnStart < columnCount);
         RowInfo[row].ColumnStart = columnStart;
         prevColumnStart = columnStart;
 
@@ -1431,14 +1518,16 @@ CCatResult Decoder::PlanSolution()
             // Unroll case where first row is added into this one:
             for (; column < pivotColumnEnd; ++column)
             {
-                CCAT_DEBUG_ASSERT(ColumnInfo[column].Sequence > ColumnInfo[column - 1].Sequence);
-                CCAT_DEBUG_ASSERT(recovery->SequenceEnd >= ColumnInfo[column].Sequence);
+                PKTALLOC_DEBUG_ASSERT(ColumnInfo[column].Sequence > ColumnInfo[column - 1].Sequence);
+                PKTALLOC_DEBUG_ASSERT(recovery->SequenceEnd >= ColumnInfo[column].Sequence);
 
                 // Muladd pivot row into this one
                 const uint8_t x = GetMatrixElement(generatorRow, CauchyColumns[column]);
                 const uint8_t y = gf256_mul(pivot_data[column], x_first);
+
                 elim_data[column] = gf256_add(x, y);
-                CCAT_DEBUG_ASSERT(elim_data[column] != 0);
+
+                PKTALLOC_DEBUG_ASSERT(elim_data[column] != 0);
             }
         }
 
@@ -1446,7 +1535,9 @@ CCatResult Decoder::PlanSolution()
         for (; column < columnCount; ++column)
         {
             const Counter64 columnSequence = ColumnInfo[column].Sequence;
-            CCAT_DEBUG_ASSERT(columnSequence > ColumnInfo[column - 1].Sequence);
+
+            PKTALLOC_DEBUG_ASSERT(columnSequence > ColumnInfo[column - 1].Sequence);
+
             if (recovery->SequenceEnd <= columnSequence)
             {
                 columnEnd = column;
@@ -1480,7 +1571,7 @@ CCatResult Decoder::ResumeGaussianElimination(
 
         // If the normal row order does not contain this:
         if (pivotColumnStart >= row) {
-            CCAT_DEBUG_BREAK(); // Should never happen
+            PKTALLOC_DEBUG_BREAK(); // Should never happen
             return CCat_Error;
         }
 
@@ -1494,18 +1585,18 @@ CCatResult Decoder::ResumeGaussianElimination(
             }
 
 #ifndef GF256_ALIGNED_ACCESSES
-            CCAT_DEBUG_ASSERT(pivotColumnEnd >= row + 1);
+            PKTALLOC_DEBUG_ASSERT(pivotColumnEnd >= row + 1);
             const unsigned count = pivotColumnEnd - row - 1;
             if (count >= 8)
             {
                 uint8_t* data = pivot_data + row + 1;
+
                 gf256_div_mem(data, data, diag, count);
             }
             else
 #endif
             {
-                for (unsigned column = row + 1; column < pivotColumnEnd; ++column)
-                {
+                for (unsigned column = row + 1; column < pivotColumnEnd; ++column) {
                     pivot_data[column] = gf256_div(pivot_data[column], diag);
                 }
             }
@@ -1518,23 +1609,27 @@ CCatResult Decoder::ResumeGaussianElimination(
             elim_data += columnCount;
 
             const unsigned columnStart = RowInfo[elim_row].ColumnStart;
-            CCAT_DEBUG_ASSERT(columnStart >= pivotColumnStart);
+            PKTALLOC_DEBUG_ASSERT(columnStart >= pivotColumnStart);
+
             if (columnStart > row) {
                 // Following rows no longer contain this column also
                 break;
             }
-            CCAT_DEBUG_ASSERT(RowInfo[elim_row].ColumnEnd >= pivotColumnEnd);
+
+            PKTALLOC_DEBUG_ASSERT(RowInfo[elim_row].ColumnEnd >= pivotColumnEnd);
 
             // Muladd pivot row into this one
             const uint8_t elim_value = elim_data[row];
-            //CCAT_DEBUG_ASSERT(elim_value != 0);
+
             if (elim_value == 0) {
                 // No changes needed
                 continue;
             }
+
 #ifndef GF256_ALIGNED_ACCESSES
-            CCAT_DEBUG_ASSERT(pivotColumnEnd >= row + 1);
+            PKTALLOC_DEBUG_ASSERT(pivotColumnEnd >= row + 1);
             const unsigned count = pivotColumnEnd - row - 1;
+
             if (count >= 8)
             {
                 gf256_muladd_mem(
@@ -1547,8 +1642,7 @@ CCatResult Decoder::ResumeGaussianElimination(
 #endif
             {
                 // elim_data[] += pivot[] * elim_value
-                for (unsigned column = row + 1; column < pivotColumnEnd; ++column)
-                {
+                for (unsigned column = row + 1; column < pivotColumnEnd; ++column) {
                     elim_data[column] = gf256_add(elim_data[column], gf256_mul(pivot_data[column], elim_value));
                 }
             }
@@ -1584,23 +1678,25 @@ CCatResult Decoder::PivotedGaussianElimination(unsigned pivotColumn)
 
             // Check if column range covers the loss column:
             pivotColumnStart = RowInfo[pivotRowIndex].ColumnStart;
-            CCAT_DEBUG_ASSERT(pivotColumnStart <= pivotColumn);
+            PKTALLOC_DEBUG_ASSERT(pivotColumnStart <= pivotColumn);
             pivotColumnEnd = RowInfo[pivotRowIndex].ColumnEnd;
-            CCAT_DEBUG_ASSERT(pivotColumnEnd > pivotColumn);
+            PKTALLOC_DEBUG_ASSERT(pivotColumnEnd > pivotColumn);
 
             // Swap this pivot row into place
-            if (i != pivotColumn) {
+            if (i != pivotColumn)
+            {
                 const uint8_t temp = PivotRowIndex[pivotColumn];
                 PivotRowIndex[pivotColumn] = (uint8_t)pivotRowIndex;
                 PivotRowIndex[i] = temp;
             }
 
 #ifndef GF256_ALIGNED_ACCESSES
-            CCAT_DEBUG_ASSERT(pivotColumnEnd >= pivotColumn + 1);
+            PKTALLOC_DEBUG_ASSERT(pivotColumnEnd >= pivotColumn + 1);
             const unsigned count = pivotColumnEnd - pivotColumn - 1;
             if (count >= 8)
             {
                 uint8_t* ptr = data + pivotColumn + 1;
+
                 gf256_div_mem(ptr, ptr, diag, count);
             }
             else
@@ -1617,9 +1713,10 @@ CCatResult Decoder::PivotedGaussianElimination(unsigned pivotColumn)
         }
 
         // If no rows found that can help:
-        if (!pivot_data) {
+        if (!pivot_data)
+        {
             // Record failure point
-            CCAT_DEBUG_ASSERT(pivotColumn < ColumnCount);
+            PKTALLOC_DEBUG_ASSERT(pivotColumn < ColumnCount);
             FailureSequence = ColumnInfo[pivotColumn].Sequence;
             return CCat_NeedsMoreData;
         }
@@ -1638,6 +1735,7 @@ CCatResult Decoder::PivotedGaussianElimination(unsigned pivotColumn)
             // Check if column is zero:
             uint8_t* elim_data = Matrix.GetPtr() + elimRowIndex * columnCount;
             const uint8_t elim_value = elim_data[pivotColumn];
+
             if (elim_value == 0) {
                 // No changes needed
                 continue;
@@ -1654,7 +1752,7 @@ CCatResult Decoder::PivotedGaussianElimination(unsigned pivotColumn)
 
             // Add pivot row to this one
 #ifndef GF256_ALIGNED_ACCESSES
-            CCAT_DEBUG_ASSERT(pivotColumnEnd >= pivotColumn + 1);
+            PKTALLOC_DEBUG_ASSERT(pivotColumnEnd >= pivotColumn + 1);
             const unsigned count = pivotColumnEnd - pivotColumn - 1;
             if (count >= 8)
             {
@@ -1687,13 +1785,13 @@ CCatResult Decoder::EliminateOriginals()
 
     // Find actual range of original data for the used recovery rows
     Counter64 sequenceEnd = RowInfo[0].Recovery->SequenceEnd;
-    CCAT_DEBUG_ASSERT(PivotRowIndex[0] == 0);
+    PKTALLOC_DEBUG_ASSERT(PivotRowIndex[0] == 0);
 
     // Allocate space for solutions from recovery data
     for (unsigned column = 0; column < columnCount; ++column)
     {
         const uint8_t rowIndex = PivotRowIndex[column];
-        CCAT_DEBUG_ASSERT(rowIndex < RowCount);
+        PKTALLOC_DEBUG_ASSERT(rowIndex < RowCount);
         RecoveryPacket* recovery = RowInfo[rowIndex].Recovery;
 
         // Find the largest sequence extent including received originals
@@ -1710,15 +1808,14 @@ CCatResult Decoder::EliminateOriginals()
         // Clear data reference from recovery packet
         recovery->Data = nullptr;
 
-        if (!data)
-        {
-            CCAT_DEBUG_BREAK(); // Out of memory
+        if (!data) {
+            PKTALLOC_DEBUG_BREAK(); // Out of memory
             return CCat_OOM;
         }
 
         // Pad with zeros out to a consistent SolutionBytes size
         const unsigned bytes = recovery->Bytes;
-        CCAT_DEBUG_ASSERT(solutionBytes >= bytes);
+        PKTALLOC_DEBUG_ASSERT(solutionBytes >= bytes);
         memset(data + bytes, 0, solutionBytes - bytes);
 
         // Use this buffer for the solution
@@ -1729,12 +1826,14 @@ CCatResult Decoder::EliminateOriginals()
     Counter64 sequence = RowInfo[0].Recovery->SequenceStart;
 
     // Translate lost element into its rotated position in the decoder window ring buffer
-    CCAT_DEBUG_ASSERT(sequence >= SequenceBase);
+    PKTALLOC_DEBUG_ASSERT(sequence >= SequenceBase);
     unsigned element = (unsigned)(sequence - SequenceBase).ToUnsigned();
     element += PacketsRotation;
-    if (element >= kDecoderWindowSize) {
+
+    if (element >= kDecoderWindowSize)
+    {
         element -= kDecoderWindowSize;
-        CCAT_DEBUG_ASSERT(element < kDecoderWindowSize);
+        PKTALLOC_DEBUG_ASSERT(element < kDecoderWindowSize);
     }
 
     // Calculate generator matrix column for first (lost or received) original packet
@@ -1746,10 +1845,12 @@ CCatResult Decoder::EliminateOriginals()
     {
         // Scan through the gaps before/between/after all losses
         Counter64 nextLostSequence;
-        if (columnIndex < columnCount)
+        if (columnIndex < columnCount) {
             nextLostSequence = ColumnInfo[columnIndex].Sequence;
-        else
+        }
+        else {
             nextLostSequence = sequenceEnd;
+        }
 
         // For each original packet we received before the loss:
         while (sequence < nextLostSequence)
@@ -1758,10 +1859,10 @@ CCatResult Decoder::EliminateOriginals()
             OriginalPacket* original = &Packets[element];
             const uint8_t* originalData = original->Data;
             const unsigned originalBytes = original->Bytes;
-            CCAT_DEBUG_ASSERT(originalBytes >= 2);
-            if (!originalData || originalBytes > solutionBytes)
-            {
-                CCAT_DEBUG_BREAK(); // Invalid input
+            PKTALLOC_DEBUG_ASSERT(originalBytes >= 2);
+
+            if (!originalData || originalBytes > solutionBytes) {
+                PKTALLOC_DEBUG_BREAK(); // Invalid input
                 return CCat_InvalidInput;
             }
 
@@ -1783,11 +1884,13 @@ CCatResult Decoder::EliminateOriginals()
                 // Eliminate the original data from this row
                 uint8_t* resultData = DiagonalData[pivotColumn];
                 const uint8_t generatorRow = CauchyRows[rowIndex];
-                if (generatorRow == 0)
+                if (generatorRow == 0) {
                     gf256_add_mem(resultData, originalData, originalBytes);
+                }
                 else
                 {
                     const uint8_t y = GetMatrixElement(generatorRow, (uint8_t)generatorColumn);
+
                     gf256_muladd_mem(resultData, y, originalData, originalBytes);
                 }
             }
@@ -1832,13 +1935,14 @@ void Decoder::ExecuteSolutionPlan()
         const uint8_t* matrix_j = matrix + PivotRowIndex[j] * columnCount;
 
         // Eliminate diagonal factor
-        CCAT_DEBUG_ASSERT(matrix_j[j] != 0);
+        PKTALLOC_DEBUG_ASSERT(matrix_j[j] != 0);
         gf256_div_mem(block_j, block_j, matrix_j[j], solutionBytes);
 
         // For each row below diagonal:
         for (unsigned i = j + 1; i < columnCount; ++i)
         {
             const uint8_t* matrix_i = matrix + PivotRowIndex[i] * columnCount;
+
             gf256_muladd_mem(DiagonalData[i], matrix_i[j], block_j, solutionBytes);
         }
     }
@@ -1852,6 +1956,7 @@ void Decoder::ExecuteSolutionPlan()
         for (int i = j - 1; i >= 0; --i)
         {
             const uint8_t* matrix_i = Matrix.GetPtr() + PivotRowIndex[i] * columnCount;
+
             gf256_muladd_mem(DiagonalData[i], matrix_i[j], block_j, solutionBytes);
         }
     }
@@ -1859,10 +1964,11 @@ void Decoder::ExecuteSolutionPlan()
     // Mark all packets in range recovered
     const Counter64 sequenceStart = ColumnInfo[0].Sequence;
     const Counter64 sequenceEnd = ColumnInfo[ColumnCount - 1].Sequence + 1;
-    CCAT_DEBUG_ASSERT(sequenceStart >= SequenceBase);
+    PKTALLOC_DEBUG_ASSERT(sequenceStart >= SequenceBase);
     const unsigned elementStart = (unsigned)(sequenceStart - SequenceBase).ToUnsigned();
     const unsigned elementEnd = (unsigned)(sequenceEnd - SequenceBase).ToUnsigned();
-    CCAT_DEBUG_ASSERT(elementEnd <= kDecoderWindowSize);
+    PKTALLOC_DEBUG_ASSERT(elementEnd <= kDecoderWindowSize);
+
     Lost.ClearRange(elementStart, elementEnd);
 }
 
@@ -1878,7 +1984,7 @@ CCatResult Decoder::ReportSolution()
         // Fill in losses in the original window
         OriginalPacket* original = ColumnInfo[column].OriginalPtr;
         uint8_t* data = DiagonalData[column];
-        CCAT_DEBUG_ASSERT(original && data);
+        PKTALLOC_DEBUG_ASSERT(original && data);
 
         // Decode length from the front overhead
         const unsigned originalBytes = ReadU16_LE(data) + 1;
@@ -1900,7 +2006,7 @@ CCatResult Decoder::ReportSolution()
                 send to the author: mrcatid@gmail.com  Thanks!
 
              ******************************************************************/
-            CCAT_DEBUG_BREAK();
+            PKTALLOC_DEBUG_BREAK();
 
             // Return invalid input and attempt to recover
             return CCat_InvalidInput;
@@ -1939,8 +2045,10 @@ void Decoder::ReleaseSpan(
     const unsigned columnCount = ColumnCount;
 
     // For each column:
-    for (unsigned i = 0; i < columnCount; ++i) {
+    for (unsigned i = 0; i < columnCount; ++i)
+    {
         AllocPtr->Free(DiagonalData[i]);
+
         DiagonalData[i] = nullptr;
     }
 
@@ -1950,9 +2058,10 @@ void Decoder::ReleaseSpan(
     Counter64 poisonSequence = futureMinSequence;
 
     // If the solver will need more data to get past this point:
-    if (solveResult == CCat_NeedsMoreData) {
-        CCAT_DEBUG_ASSERT(FailureSequence >= spanStart->SequenceStart);
-        CCAT_DEBUG_ASSERT(FailureSequence < spanEnd->SequenceEnd);
+    if (solveResult == CCat_NeedsMoreData)
+    {
+        PKTALLOC_DEBUG_ASSERT(FailureSequence >= spanStart->SequenceStart);
+        PKTALLOC_DEBUG_ASSERT(FailureSequence < spanEnd->SequenceEnd);
 
         // If we are unlikely to receive more recovery spans covering it:
         if (futureMinSequence > FailureSequence) {
@@ -1972,11 +2081,12 @@ void Decoder::ReleaseSpan(
 
     // Deallocate recovery packet span
     RecoveryPacket* recovery = spanStart;
-    CCAT_DEBUG_ASSERT(recovery);
+    PKTALLOC_DEBUG_ASSERT(recovery);
     while (recovery)
     {
         // If this recovery packet does not include the poison sequence:
-        if (recovery->SequenceStart > poisonSequence) {
+        if (recovery->SequenceStart > poisonSequence)
+        {
             // Stop removing packets here
             spanNext = recovery;
             break;
@@ -1990,11 +2100,12 @@ void Decoder::ReleaseSpan(
         // Free all recovery objects in span
         AllocPtr->Destruct(recovery);
 
-        if (spanEnd == recovery)
+        if (spanEnd == recovery) {
             break;
+        }
 
         recovery = next;
-        CCAT_DEBUG_ASSERT(recovery);
+        PKTALLOC_DEBUG_ASSERT(recovery);
     }
 
     // Sequence number of left-most/right-most losses that were recovered
@@ -2031,10 +2142,12 @@ void Decoder::ReleaseSpan(
             spanPrev = prev;
         }
         else {
-            if (prev)
+            if (prev) {
                 prev->Next = next;
-            else
+            }
+            else {
                 RecoveryFirst = next;
+            }
             next->Prev = prev;
         }
 
@@ -2073,10 +2186,12 @@ void Decoder::ReleaseSpan(
             spanNext = next;
         }
         else {
-            if (next)
+            if (next) {
                 next->Prev = prev;
-            else
+            }
+            else {
                 RecoveryLast = prev;
+            }
             prev->Next = next;
         }
 
@@ -2088,14 +2203,18 @@ void Decoder::ReleaseSpan(
     }
 
     // Fix linked list
-    if (spanNext)
+    if (spanNext) {
         spanNext->Prev = spanPrev;
-    else
+    }
+    else {
         RecoveryLast = spanPrev;
-    if (spanPrev)
+    }
+    if (spanPrev) {
         spanPrev->Next = spanNext;
-    else
+    }
+    else {
         RecoveryFirst = spanNext;
+    }
 }
 
 
