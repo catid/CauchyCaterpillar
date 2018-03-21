@@ -140,6 +140,8 @@ The number of bytes to truncate to can be calculated with this bit of tested cod
             return 3;
     }
 
+In my protocol I use 2 bits in a header byte to represent how many bytes are used by the sequence number field, so it could represent some range like {0,1,2,3} -> {1,2,3,7} or {1,2,3,4} bytes, etc.  It depends a lot on the application.
+
 So it's a bit complicated, but you can use these two functions to compress 64-bit numbers down to 1 byte for slow traffic, and it won't cause any problems.
 
 (2) If there is no back-channel then you can compress the fields to get rid of leading zeros. So an encoding where the high/low bit means "more bytes are needed" and you stream in a byte or two at a time. Example of that is here:
