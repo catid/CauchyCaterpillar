@@ -95,6 +95,69 @@ or Convolutional AL-FEC Codes? A Performance Comparison for Robust Low-Latency C
 CCat corresponds to the "brief glimpse at the future" slide here:
 https://github.com/catid/CauchyCaterpillar/blob/master/docs/ErasureCodesInSoftware.pdf
 
+#### Packet Format
+
+I left the packet format up to the application, since it's application-specific.  Here's some guidance about how to compress the fields:
+
+(1) If the application has a back-channel (e.g. acknowledging receipt of some data), then it's possible to compress the overhead a bit. You can truncate each field to a number of low bytes, and then re-expand using this algorithm:
+
+https://github.com/catid/CauchyCaterpillar/blob/master/Counter.h#L333
+
+The number of bytes to truncate to can be calculated with this bit of tested code:
+
+    // This is provided in ACK data from the peer's back-channel.
+    int32_t PeerNextExpectedSeq = 0;
+    
+    // This is the next incrementing sequence number we will generate.
+    int32_t NextSequenceNumber = 0;
+
+    /// Get number of bytes used to represent the given packet number in our protocol
+    /// taking into account the peer's next expected sequence number
+    unsigned getPacketNumBytes(int32_t packetNum) const
+    {
+        // The peer uses its next expected sequence number to decompress the
+        // numbers we send.  By the time a new datagram arrives, that number
+        // may have advanced from that last one acknowledged through the last
+        // one that was sent.  When sending a new sequence number, include
+        // enough bits so that any possible number can decode the new one.
+        // So, take the larger of the distances from each end.
+        int32_t mag = packetNum - PeerNextExpectedSeq;
+        if (mag < 0)
+            mag = 1 - mag;
+        int32_t mag2 = packetNum - NextSequenceNumber;
+        if (mag2 < 0)
+            mag2 = 1 - mag2;
+        if (mag < mag2)
+            mag = mag2;
+
+        // Choose the number of bytes to send:
+        if (mag < 0x80)
+            return 1;
+        else if (mag < 0x8000)
+            return 2;
+        // Add other cases here for 3+ bytes.  I stopped at 3 bytes for my protocol.
+        else
+            return 3;
+    }
+
+So it's a bit complicated, but you can use these two functions to compress 64-bit numbers down to 1 byte for slow traffic, and it won't cause any problems.
+
+(2) If there is no back-channel then you can compress the fields to get rid of leading zeros. So an encoding where the high/low bit means "more bytes are needed" and you stream in a byte or two at a time. Example of that is here:
+
+https://github.com/catid/siamese/blob/master/SiameseSerializers.h#L566
+
+(3) Otherwise you can still pick some reasonable upper-limit and make some assumptions and truncate to like 2-4 bytes.
+
+uint64_t SequenceStart - Compressed as above
+
+Data - No compression
+
+Bytes - Can be implied by the frame it is in. Otherwise it won't exceed 2 bytes
+
+Count - 1 byte - Does not exceed 192. You can use higher values like 255 to indicate an escape code to a different type of packet..
+
+RecoveryRow - 1 byte (6 bits) - You can use the remaining 2 bits for something else like signaling it's an original versus recovery packet.
+
 #### Credits
 
 I posted about this type of erasure code years ago on my blog, but never finished the project.  Recently Nicolas SAID sent me a paper from Dr. Martin Reisslein that explores a similar idea ( http://mre.faculty.asu.edu/CRLNC.pdf ).  Based on the success of that work I decided to put my own spin on it and release here.  I hope others find it useful!
