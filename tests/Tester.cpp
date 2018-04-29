@@ -42,6 +42,13 @@ static const unsigned kWindowMsec = 100;
 // Maximum size of test packets
 static const size_t kTestPacketMaxBytes = 33;
 
+// Duration of test in seconds
+const unsigned kDurationSeconds = 10;
+
+// Number of parallel runs to simulate
+static const unsigned kParallelRuns = 100;
+
+
 
 // Compiler-specific debug break
 #if defined(_DEBUG) || defined(DEBUG)
@@ -203,8 +210,7 @@ struct RunState
             Sender.SendRecovery(recovery);
             ++FECSent;
 
-            if (Prng.Next() > kPlrPRNG32Thresh)
-            {
+            if (Prng.Next() > kPlrPRNG32Thresh) {
                 Receiver.OnRecovery(recovery);
             }
         }
@@ -214,7 +220,7 @@ struct RunState
 
     float GetEffLoss() const
     {
-        return Receiver.OriginalPackets / (float)Sequence;
+        return 1.f - Receiver.OriginalPackets / (float)Sequence;
     }
 
     unsigned GetResetPacketCounter()
@@ -270,9 +276,6 @@ bool GetMinimumResult(
     unsigned durationSeconds,
     TestResults& results)
 {
-    // Number of parallel runs to simulate
-    static const unsigned kParallelRuns = 100;
-
     RunState Runs[kParallelRuns];
 
     static const uint64_t kExperimentSeed = 0;
@@ -295,7 +298,8 @@ bool GetMinimumResult(
         {
             for (unsigned j = 0; j < speedMult; ++j)
             {
-                if (!Runs[i].Run(plr)) {
+                if (!Runs[i].Run(plr))
+                {
                     Logger.Error("A codec experienced an error and had to stop");
                     TESTER_DEBUG_BREAK();
                     return false;
@@ -323,13 +327,13 @@ bool GetMinimumResult(
                 eloss.Average() * 100.f, "% / ", eloss.maximum * 100.f,
                 "% (min/avg/max) effective loss. ", count.Average(), " originals/second");
 
-            Logger.Info(Runs[0].Sequence, ": ", fecsent.minimum, " / ", fecsent.Average(), " / ", fecsent.maximum);
-            Logger.Info(Runs[0].Sequence, ": ", count.minimum, " / ", count.Average(), " / ", count.maximum);
+            Logger.Info(Runs[0].Sequence, " FEC sent: ", fecsent.minimum, " / ", fecsent.Average(), " / ", fecsent.maximum);
+            Logger.Info(Runs[0].Sequence, " Originals sent: ", count.minimum, " / ", count.Average(), " / ", count.maximum);
 #endif
             results.PacketsPerSecond = (unsigned)(count.Average() / (float)durationSeconds);
-            results.MinimumEffectiveLoss = eloss.minimum;
-            results.AverageEffectiveLoss = eloss.Average();
-            results.MaximumEffectiveLoss = eloss.maximum;
+            results.MinimumEffectiveLoss = eloss.minimum * 100.f;
+            results.AverageEffectiveLoss = eloss.Average() * 100.f;
+            results.MaximumEffectiveLoss = eloss.maximum * 100.f;
 
             break; // Stop after test ends
         }
@@ -354,11 +358,11 @@ void TestFECRate(float plr, float fec, unsigned speedMult, unsigned durationSeco
 
     std::lock_guard<std::mutex> locker(m_SyncLock);
 
-    m_File << plr << "\t" << fec << "\t" << results.PacketsPerSecond << "\t" <<
+    m_File << plr * 100.f << "\t" << fec * 100.f << "\t" << results.PacketsPerSecond << "\t" <<
         results.MinimumEffectiveLoss << "\t" << results.AverageEffectiveLoss << "\t" <<
         results.MaximumEffectiveLoss << endl;
 
-    Logger.Info(plr, "\t", fec, "\t", results.PacketsPerSecond, "\t",
+    Logger.Info(plr * 100.f, "\t", fec * 100.f, "\t", results.PacketsPerSecond, "\t",
         results.MinimumEffectiveLoss, "\t", results.AverageEffectiveLoss, "\t",
         results.MaximumEffectiveLoss);
 }
@@ -367,10 +371,15 @@ int main()
 {
     Logger.Info("Cauchy Caterpillar Tester");
 
-    // Duration of test in seconds
-    const unsigned durationSeconds = 10;
+    Logger.Info("This is running ", kParallelRuns, " parallel simulations in realtime for ", kDurationSeconds,
+        " seconds");
+    Logger.Info(" for different Packet Loss Rates (PLR) and different Forward Error Correction (FEC) overhead.");
+    Logger.Info("The FEC used is called Cauchy Caterpillar (CCat).");
+    Logger.Info("It is a short-window (", kWindowMsec, " milliseconds) convolutional code.");
+    Logger.Info("For each PLR, FEC, Packets/Second (PPS), the min/avg/max Effective Packet Loss Rate (EPLR) is presented.");
+    Logger.Info("This is the percentage loss rate experienced by the application in spite of FEC being used.");
 
-    static const char* kLeaderStr = "PLR\tFEC\tPPS\tELossMin\tELossAvg\tELossMax";
+    static const char* kLeaderStr = "PLR%\tFEC%\tPPS\tEPLR%Min\tEPLR%Avg\tEPLR%Max";
 
     m_File.open("simulation_results.txt");
     if (!m_File)
@@ -382,24 +391,31 @@ int main()
 
     Logger.Info(kLeaderStr);
 
-    for (unsigned speedMult = 1; speedMult < 10; ++speedMult)
+    m_TestFailed = false;
+
+    for (unsigned speedMult = 2; speedMult < 10; ++speedMult)
     {
         for (float plr = 0.01f; plr < 0.1f; plr += 0.005f)
         {
-            m_TestFailed = false;
-
+#if 1
 #pragma omp parallel for
             for (int i = 20 * 2; i >= 0; --i)
-            //for (float fec = 0.01; fec < 0.2; fec += 0.005)
-            //const float fec = 0.01f;
             {
                 const float fec = i * 0.005f;
 
-                TestFECRate(plr, fec, speedMult, durationSeconds);
+                TestFECRate(plr, fec, speedMult, kDurationSeconds);
             }
+#else
+            const float fec = 0.1f;
+            TestFECRate(plr, fec, speedMult, kDurationSeconds);
+#endif
 
             if (m_TestFailed)
+            {
+                TESTER_DEBUG_BREAK();
+                Logger.Error("Quit on error in codec");
                 return -1;
+            }
         }
     }
 

@@ -82,7 +82,7 @@
 */
 
 /// Library version
-#define CCAT_VERSION 2
+#define CCAT_VERSION 3
 
 // Tweak if the functions are exported or statically linked
 //#define CCAT_DLL /* Defined when building/linking as DLL */
@@ -195,7 +195,7 @@ typedef struct CCatRecovery_t
     /// Count parameter: Ranges from 1 ... CCAT_MAX_WINDOW_PACKETS
     /// Or from 1 ... CCatSettings::WindowPackets provided by the application,
     /// whichever is smaller.  This is filled in by ccat_encode_recovery().
-    unsigned Count;
+    uint8_t Count;
 
     /// Recovery row parameter: Ranges from 0 ... CCAT_MAX_RECOVERY_ROW
     uint8_t RecoveryRow;
