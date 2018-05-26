@@ -54,6 +54,7 @@
 
 #include <stdint.h>
 #include <new>
+#include <string.h>
 
 #ifdef _WIN32
     #include <intrin.h> // __popcnt64
