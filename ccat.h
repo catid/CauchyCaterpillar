@@ -297,7 +297,7 @@ CCAT_EXPORT CCatResult ccat_decode_original(
 /**
     ccat_decode_recovery()
 
-    When the app receives an recovery packet, pass it to this function.
+    When the app receives a recovery packet, pass it to this function.
 
     Returns CCat_Success on success.
     Returns other codes on failure.
