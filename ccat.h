@@ -297,8 +297,7 @@ CCAT_EXPORT CCatResult ccat_decode_original(
 /**
     ccat_decode_recovery()
 
-    Call this function to generate a recovery message that can fill in for
-    missing packets.
+    When the app receives an recovery packet, pass it to this function.
 
     Returns CCat_Success on success.
     Returns other codes on failure.
