@@ -32,6 +32,8 @@
 #include "SiameseTools.h"
 #include "StrikeRegister.h"
 
+#include <omp.h> // Requires OpenMP for parallel for
+
 #include <fstream>
 using namespace std;
 
@@ -46,8 +48,13 @@ static const size_t kTestPacketMaxBytes = 33;
 const unsigned kDurationSeconds = 10;
 
 // Number of parallel runs to simulate
-static const unsigned kParallelRuns = 100;
+static const unsigned kParallelRuns = 5000;
 
+// Simulate ~4 Mbps stream (1300 byte packets at 385 packets per second)
+static const int kPacketsPerSecond = 385;
+
+
+static std::atomic<bool> m_TestFailed;
 
 
 // Compiler-specific debug break
@@ -269,14 +276,48 @@ struct TestResults
     float MaximumEffectiveLoss = 0.f;
 };
 
+void SimulateOneStream(RunState* state, float plr, int i)
+{
+    uint64_t t0 = siamese::GetTimeMsec();
+
+    int packet_count = 0;
+    const int total_packet_count = kPacketsPerSecond * kDurationSeconds;
+
+    for (;;)
+    {
+        const uint64_t t1 = siamese::GetTimeMsec();
+        const int64_t dt = t1 - t0;
+
+        // Calculate number of packets we should have sent
+        const int expected_packet_count = static_cast<int>((dt * kPacketsPerSecond) / 1000);
+
+        for (; packet_count < expected_packet_count; ++packet_count)
+        {
+            if (packet_count >= total_packet_count) {
+                return; // Done!
+            }
+
+            // This sends one simulated packet.
+            if (!state->Run(plr))
+            {
+                Logger.Error("Codec ", i, " experienced an error and had to stop");
+                TESTER_DEBUG_BREAK();
+                m_TestFailed = true;
+                return;
+            }
+        }
+
+        // Sends in bursts every 10 msec
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
+
 bool GetMinimumResult(
     float plr,
     float fec,
-    unsigned speedMult,
-    unsigned durationSeconds,
     TestResults& results)
 {
-    RunState Runs[kParallelRuns];
+    RunState* Runs = new RunState[kParallelRuns];
 
     static const uint64_t kExperimentSeed = 0;
 
@@ -290,68 +331,44 @@ bool GetMinimumResult(
         }
     }
 
-    uint64_t t0 = siamese::GetTimeMsec();
+    std::atomic<bool> failed = ATOMIC_VAR_INIT(false);
 
-    for (;;)
+#pragma omp parallel for
+    for (int i = 0; i < kParallelRuns; ++i)
     {
-        for (unsigned i = 0; i < kParallelRuns; ++i)
-        {
-            for (unsigned j = 0; j < speedMult; ++j)
-            {
-                if (!Runs[i].Run(plr))
-                {
-                    Logger.Error("A codec experienced an error and had to stop");
-                    TESTER_DEBUG_BREAK();
-                    return false;
-                }
-            }
-        }
-
-        const uint64_t t1 = siamese::GetTimeMsec();
-
-        if (t1 - t0 > durationSeconds * 1000)
-        {
-            t0 = t1;
-
-            StatsCollector<float> eloss;
-            StatsCollector<unsigned> count;
-            StatsCollector<unsigned> fecsent;
-            for (unsigned i = 0; i < kParallelRuns; ++i) {
-                eloss.Update(Runs[i].GetEffLoss());
-                count.Update(Runs[i].GetResetPacketCounter());
-                fecsent.Update((unsigned)Runs[i].FECSent);
-            }
-
-#if 0
-            Logger.Info(Runs[0].Sequence, ": ", eloss.minimum * 100.f, "% / ",
-                eloss.Average() * 100.f, "% / ", eloss.maximum * 100.f,
-                "% (min/avg/max) effective loss. ", count.Average(), " originals/second");
-
-            Logger.Info(Runs[0].Sequence, " FEC sent: ", fecsent.minimum, " / ", fecsent.Average(), " / ", fecsent.maximum);
-            Logger.Info(Runs[0].Sequence, " Originals sent: ", count.minimum, " / ", count.Average(), " / ", count.maximum);
-#endif
-            results.PacketsPerSecond = (unsigned)(count.Average() / (float)durationSeconds);
-            results.MinimumEffectiveLoss = eloss.minimum * 100.f;
-            results.AverageEffectiveLoss = eloss.Average() * 100.f;
-            results.MaximumEffectiveLoss = eloss.maximum * 100.f;
-
-            break; // Stop after test ends
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        SimulateOneStream(&Runs[i], plr, i);
     }
 
+    if (failed) {
+        Logger.Error("A codec experienced an error and had to stop");
+        return false;
+    }
+
+    StatsCollector<float> eloss;
+    StatsCollector<unsigned> count;
+    StatsCollector<unsigned> fecsent;
+    for (unsigned i = 0; i < kParallelRuns; ++i) {
+        eloss.Update(Runs[i].GetEffLoss());
+        count.Update(Runs[i].GetResetPacketCounter());
+        fecsent.Update((unsigned)Runs[i].FECSent);
+    }
+
+    results.PacketsPerSecond = (unsigned)(count.Average() / (float)kDurationSeconds);
+    results.MinimumEffectiveLoss = eloss.minimum * 100.f;
+    results.AverageEffectiveLoss = eloss.Average() * 100.f;
+    results.MaximumEffectiveLoss = eloss.maximum * 100.f;
+
+    delete[] Runs;
     return true;
 }
 
 static ofstream m_File;
 static std::mutex m_SyncLock;
-static std::atomic<bool> m_TestFailed;
 
-void TestFECRate(float plr, float fec, unsigned speedMult, unsigned durationSeconds)
+void TestFECRate(float plr, float fec)
 {
     TestResults results;
-    if (!GetMinimumResult(plr, fec, speedMult, durationSeconds, results)) {
+    if (!GetMinimumResult(plr, fec, results)) {
         m_TestFailed = true;
         return;
     }
@@ -370,6 +387,8 @@ void TestFECRate(float plr, float fec, unsigned speedMult, unsigned durationSeco
 int main()
 {
     Logger.Info("Cauchy Caterpillar Tester");
+
+    omp_set_num_threads(kParallelRuns);
 
     Logger.Info("This is running ", kParallelRuns, " parallel simulations in realtime for ", kDurationSeconds,
         " seconds");
@@ -393,29 +412,20 @@ int main()
 
     m_TestFailed = false;
 
-    for (unsigned speedMult = 2; speedMult < 10; ++speedMult)
+    for (float plr = 0.01f; plr < 0.1f; plr += 0.005f)
     {
-        for (float plr = 0.01f; plr < 0.1f; plr += 0.005f)
+        for (int i = 20 * 2; i >= 0; --i)
         {
-#if 1
-#pragma omp parallel for
-            for (int i = 20 * 2; i >= 0; --i)
-            {
-                const float fec = i * 0.005f;
+            const float fec = i * 0.005f;
 
-                TestFECRate(plr, fec, speedMult, kDurationSeconds);
-            }
-#else
-            const float fec = 0.1f;
-            TestFECRate(plr, fec, speedMult, kDurationSeconds);
-#endif
+            TestFECRate(plr, fec);
+        }
 
-            if (m_TestFailed)
-            {
-                TESTER_DEBUG_BREAK();
-                Logger.Error("Quit on error in codec");
-                return -1;
-            }
+        if (m_TestFailed)
+        {
+            TESTER_DEBUG_BREAK();
+            Logger.Error("Quit on error in codec");
+            return -1;
         }
     }
 
