@@ -48,7 +48,7 @@ static const size_t kTestPacketMaxBytes = 33;
 const unsigned kDurationSeconds = 10;
 
 // Number of parallel runs to simulate
-static const unsigned kParallelRuns = 5000;
+static const unsigned kParallelRuns = 2000;
 
 // Simulate ~4 Mbps stream (1300 byte packets at 385 packets per second)
 static const int kPacketsPerSecond = 385;
@@ -341,6 +341,7 @@ bool GetMinimumResult(
 
     if (failed) {
         Logger.Error("A codec experienced an error and had to stop");
+        TESTER_DEBUG_BREAK();
         return false;
     }
 
@@ -429,8 +430,6 @@ int main()
         }
     }
 
-    TESTER_DEBUG_BREAK();
-    Logger.Error("Quit on error in codec");
-
+    Logger.Info("Test successful!");
     return 0;
 }
